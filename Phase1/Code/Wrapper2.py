@@ -33,14 +33,14 @@ def main():
     # Args = Parser.parse_args()
     # NumFeatures = Args.NumFeatures
 
-    path = "Set2"
+    path = "Set3"
     os.makedirs(f'outputs/{path}', exist_ok=True)
 
     """
     Read a set of images for Panorama stitching
     """
     # im_set = [cv2.imread(f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Data/Train/{path}/{i + 1}.jpg') for i in range(3)]
-    im_set = [cv2.imread(f'Phase1/Data/Train/{path}/{i + 1}.jpg') for i in range(3)]
+    im_set = [cv2.imread(f'Phase1/Data/Train/{path}/{i + 1}.jpg') for i in range(len(os.listdir(f'Phase1/Data/Train/{path}')))]
     
     for im in im_set:
         cv2.imshow('image', im)
