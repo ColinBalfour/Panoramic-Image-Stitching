@@ -31,7 +31,7 @@ def main():
     # Args = Parser.parse_args()
     # NumFeatures = Args.NumFeatures
     
-    path = "Set1"
+    path = "Set3"
 
     """
     Read a set of images for Panorama stitching

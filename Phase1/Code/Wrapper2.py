@@ -33,7 +33,7 @@ def main():
     # Args = Parser.parse_args()
     # NumFeatures = Args.NumFeatures
 
-    path = "Set3"
+    path = "Set2"
     os.makedirs(f'outputs/{path}', exist_ok=True)
 
     """
