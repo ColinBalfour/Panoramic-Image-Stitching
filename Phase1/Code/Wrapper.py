@@ -222,12 +222,15 @@ def main():
  
     def get_homography(pairs):
         for pair in pairs:
+            x1, y1 = pair[0]
+            x2, y2 = pair[1]
             A = np.array([
-                [-pair[0][0], -pair[0][1], -1, 0, 0, 0, pair[0][0] * pair[1][0], pair[0][1] * pair[1][0], pair[1][0]],
-                [0, 0, 0, -pair[0][0], -pair[0][1], -1, pair[0][0] * pair[1][1], pair[0][1] * pair[1][1], pair[1][1]]
+                [x1, y1, 1, 0, 0, 0, -x1 * x2, -x1 * y1],
+                [0, 0, 0, x1, y1, 1, -x1 * y1, -y1 * y2]
             ])
             
-            b = np.array([[-pair[1][0]], [-pair[1][1]]])
+            
+            b = np.array([[x2], [y2]])
             
             if 'A_matrix' in locals():
                 A_matrix = np.vstack((A_matrix, A))
@@ -244,17 +247,44 @@ def main():
 
         return h.reshape(3, 3)
         
-    def RANSAC(keypoints1, keypoints2, matches, tau, N):
-        max_inliers = 0
+    def RANSAC(keypoints1, keypoints2, matches, tau=5, N=5000):
+        max_inliers = []
         best_homography = None
         for i in range(N):
             # Randomly select 4 pairs
-            random_pairs = np.random.choice(matches, 4, replace=False)
+            random_pairs = np.random.choice(matches, 4, replace=True)
             pairs = [[keypoints1[pair.queryIdx], keypoints2[pair.trainIdx]] for pair in random_pairs]
             
             # Compute homography
-            H = get_homography(random_pairs)
+            H = get_homography(pairs)
             
+            inliers = []
+            for pair in matches:
+                p1 = keypoints1[pair.queryIdx]
+                p2 = keypoints2[pair.trainIdx]
+                
+                p1_prime = H.dot(np.append(p1, 1))[:2]
+                
+                if np.linalg.norm(p2 - p1_prime) < tau:
+                    inliers.append(pair)
+            
+            if len(inliers) > len(max_inliers):
+                max_inliers = inliers
+                best_homography = H
+            
+            if len(max_inliers) > len(matches) * 0.95:
+                break
+        
+        print(f"Found homography with {len(max_inliers)} inliers after {N} iterations")
+        
+        pairs = [[keypoints1[pair.queryIdx], keypoints2[pair.trainIdx]] for pair in max_inliers]
+        return get_homography(pairs), max_inliers
+
+    H, inliers = RANSAC(features_set[0], features_set[1], matches)
+    
+    out = cv2.drawMatches(im1, key1, im2, key2, inliers, None)
+    
+    cv2.imwrite(f'outputs/{path}/ransac.png', out)
             
 
     """
