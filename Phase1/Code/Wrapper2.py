@@ -22,6 +22,7 @@ import matplotlib.pyplot as plt
 from copy import deepcopy
 import scipy.ndimage as ndimage
 from skimage.feature import peak_local_max
+import os
 
 
 def main():
@@ -32,13 +33,15 @@ def main():
     # Args = Parser.parse_args()
     # NumFeatures = Args.NumFeatures
 
-    path = "Set1"
+    path = "Set2"
+    os.makedirs(f'outputs/{path}', exist_ok=True)
 
     """
     Read a set of images for Panorama stitching
     """
-    im_set = [cv2.imread(f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Data/Train/{path}/{i + 1}.jpg') for i in range(3)]
-
+    # im_set = [cv2.imread(f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Data/Train/{path}/{i + 1}.jpg') for i in range(3)]
+    im_set = [cv2.imread(f'Phase1/Data/Train/{path}/{i + 1}.jpg') for i in range(3)]
+    
     for im in im_set:
         cv2.imshow('image', im)
         cv2.waitKey(2000)
@@ -51,7 +54,7 @@ def main():
     corner_im = []
     for i, im in enumerate(im_set):
         gray = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
-        harris_corners = cv2.cornerHarris(gray, 3, 3, 0.04)
+        harris_corners = cv2.cornerHarris(gray, 5, 3, 0.06)
         corner_im.append(harris_corners)
         # print(harris_corners.shape, im.shape)
 
@@ -60,7 +63,7 @@ def main():
 
         # Threshold for an optimal value, it may vary depending on the image.
         harris_im = deepcopy(im)
-        harris_im[dst > 0.01 * dst.max()] = [0, 0, 255]
+        harris_im[dst > 0.0075 * dst.max()] = [0, 0, 255]
 
         # plt.imshow(harris_corners, cmap='gray')
         # plt.show()
@@ -89,6 +92,8 @@ def main():
 	Perform ANMS: Adaptive Non-Maximal Suppression
 	Save ANMS output as anms.png
 	"""
+    
+    USE_SUBPIX = False
 
     features_set = []
     for i, im in enumerate(corner_im):
@@ -98,7 +103,7 @@ def main():
 
         cpy = deepcopy(im_set[i])
 
-        lm = peak_local_max(im, min_distance=2, threshold_rel=0.02)
+        lm = peak_local_max(im, min_distance=2, threshold_rel=0.01)
         dst = np.zeros(im.shape)
         features = []
         for x, y in lm:
@@ -107,24 +112,33 @@ def main():
             im_set[i][x, y] = [0, 0, 255]
             # cv2.circle(im_set[i], (y, x), 1, (0, 0, 255))
 
-        features_set.append(features)
+        if not USE_SUBPIX:
+            features_set.append(features)
+        
         cv2.imwrite(f'outputs/{path}/anms{i}.png', im_set[i])
-
+        
+        # NOTE: might try to use later
+        ### Subpixel accuracy ###
         dst = np.uint8(dst)
         # find centroids
         ret, labels, stats, centroids = cv2.connectedComponentsWithStats(dst)
-
+        
         # define the criteria to stop and refine the corners
         criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.001)
-        corners = cv2.cornerSubPix(gray, np.float32(centroids), (5, 5), (-1, -1), criteria)
-
+        corners = cv2.cornerSubPix(gray,np.float32(centroids),(5,5),(-1,-1),criteria)
+        
+        # print(corners)
+        if USE_SUBPIX:
+            features_set.append([np.int0([x, y]) for x, y in corners])
+        
         # Now draw them
-        res = np.hstack((centroids, corners))
+        res = np.hstack((centroids,corners))
         res = np.int0(res)
-        cpy[res[:, 1], res[:, 0]] = [0, 0, 255]
-        cpy[res[:, 3], res[:, 2]] = [0, 255, 0]
+        cpy[res[:,1],res[:,0]]=[0,0,255]
+        cpy[res[:,3],res[:,2]] = [0,255,0]
 
-        cv2.imwrite(f'corners_subpix{i}.png', cpy)
+        # cv2.imwrite(f'corners_subpix{i}.png', cpy)
+        cv2.imwrite(f'outputs/{path}/corners_subpix{i}.png', cpy)
 
     """
 	Feature Descriptors
@@ -182,7 +196,7 @@ def main():
 	Save Feature Matching output as matching.png
 	"""
     match_set = []
-    def match_features(descriptors1, descriptors2):
+    def match_features(descriptors1, descriptors2, threshold=0.75):
         matches = []
         for i, descriptor in enumerate(descriptors1):
             # Sort descriptors in keypoints2 based on their distance to the current descriptor from keypoints1
@@ -190,7 +204,7 @@ def main():
             sorted_indices = np.argsort(distances)
 
             # Apply the ratio test (lowe's ratio test)
-            if distances[sorted_indices[0]] < 0.6 * distances[sorted_indices[1]]:
+            if distances[sorted_indices[0]] < threshold * distances[sorted_indices[1]]:
                 match = cv2.DMatch(i, sorted_indices[0], distances[sorted_indices[0]])
                 matches.append(match)
 
@@ -249,7 +263,7 @@ def main():
 
         return h.reshape(3, 3)
 
-    def RANSAC(keypoints1, keypoints2, matches, tau=5, N=5000):
+    def RANSAC(keypoints1, keypoints2, matches, tau=10, N=10000):
         max_inliers = []
         best_homography = None
         for i in range(N):
@@ -278,9 +292,11 @@ def main():
                 break
 
         print(f"Found homography with {len(max_inliers)} inliers after {N} iterations")
+        if len(max_inliers) < 8:
+            return False, None, None
 
         pairs = [[keypoints1[pair.queryIdx], keypoints2[pair.trainIdx]] for pair in max_inliers]
-        return get_homography(pairs), max_inliers
+        return True, get_homography(pairs), max_inliers
 
     homography_set = []
     inliers_set = []
@@ -288,9 +304,15 @@ def main():
     for i, (im1, features1, desc1) in enumerate(zip(im_set[:-1], features_set[:-1], discriptors_set[:-1])):
         for j, (im2, features2, desc2) in enumerate(zip(im_set[i + 1:], features_set[i + 1:], discriptors_set[i + 1:]),
                                                     start=i + 1):
+            
             matches = match_features(desc1, desc2)
+            if len(matches) < 8:
+                continue
+            
             matches = np.array(matches)
-            H, inliers = RANSAC(features1, features2, matches)
+            ret, H, inliers = RANSAC(features1, features2, matches)
+            if not ret:
+                continue
             homography_set.append(H)
             inliers_set.append(inliers)
             #  KeyPoints
