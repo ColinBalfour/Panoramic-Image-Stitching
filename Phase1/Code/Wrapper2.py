@@ -365,13 +365,13 @@ def main():
 
     def blend_with_mask(img1, img2, mask):
         """
-        Blend images with a gradual transition mask
+        Blend images with transition mask
         """
         # Create distance transform for smooth transition
         dist = cv2.distanceTransform(mask, cv2.DIST_L2, 3)
         dist = cv2.normalize(dist, None, 0, 1, cv2.NORM_MINMAX)
 
-        # Create feathered mask
+        # Create mask
         blend_width = 50  # pixels
         alpha = np.clip(dist / blend_width, 0, 1)
         alpha = cv2.GaussianBlur(alpha, (0, 0), sigmaX=10)
