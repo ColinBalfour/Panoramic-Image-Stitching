@@ -33,7 +33,7 @@ def main():
     # Args = Parser.parse_args()
     # NumFeatures = Args.NumFeatures
 
-    path = "Set2"
+    path = "Set1"
     os.makedirs(f'outputs/{path}', exist_ok=True)
 
     """
@@ -298,8 +298,11 @@ def main():
         pairs = [[keypoints1[pair.queryIdx], keypoints2[pair.trainIdx]] for pair in max_inliers]
         return True, get_homography(pairs), max_inliers
 
-    homography_set = []
-    inliers_set = []
+    homography_set = {}
+    inliers_set = {}
+    
+    # Initialize a list to store the cumulative homographies (key: (index, H)) encodes the homography H from index to key
+    cumulative_homographies = {0: (0, np.eye(3))}  # Homography from 0 to 0 is the identity matrix
 
     for i, (im1, features1, desc1) in enumerate(zip(im_set[:-1], features_set[:-1], discriptors_set[:-1])):
         for j, (im2, features2, desc2) in enumerate(zip(im_set[i + 1:], features_set[i + 1:], discriptors_set[i + 1:]),
@@ -313,8 +316,16 @@ def main():
             ret, H, inliers = RANSAC(features1, features2, matches)
             if not ret:
                 continue
-            homography_set.append(H)
-            inliers_set.append(inliers)
+            
+            homography_set[(i, j)] = H
+            inliers_set[(i, j)] = inliers
+            
+            # Compute cumulative homography from 0 to j (i.e., compose from 0 to i and i to j)
+            if i == 0:  # If we're at the first pair, just store the homography H
+                cumulative_homographies[j] = (0, H)
+            else:  # For subsequent pairs, multiply by the previous cumulative homography
+                cumulative_homographies[j] = (i, H)
+            
             #  KeyPoints
             key1 = [cv2.KeyPoint(np.float32(x), np.float32(y), 1) for (x, y) in features1]
             key2 = [cv2.KeyPoint(np.float32(x), np.float32(y), 1) for (x, y) in features2]
@@ -325,6 +336,30 @@ def main():
 	Image Warping + Blending
 	Save Panorama output as mypano.png
 	"""
+    
+    if list(cumulative_homographies.keys()) != list(range(len(im_set))):
+        raise Exception("Could not find homographies for all pairs. Exiting...")
+    
+    warped_images = []
+    for i, image in enumerate(im_set):
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        
+        from_index, H = cumulative_homographies[i]
+        
+        # Apply homography
+        warped = cv2.warpPerspective(image, np.linalg.inv(H), (image.shape[1] * 2, image.shape[0] * 2))
+        warped_images.append(warped)
+        
+        cv2.imwrite(f'outputs/{path}/warped_{from_index}_{i}.png', warped)
+    
+    # combine all the warped images
+    panorama = np.zeros_like(warped_images[0])
+    for warped in warped_images:
+        panorama = cv2.add(panorama, warped)
+    cv2.imwrite(f'outputs/{path}/mypano.png', panorama)
+    
+ 
+    
 
 
 if __name__ == "__main__":
