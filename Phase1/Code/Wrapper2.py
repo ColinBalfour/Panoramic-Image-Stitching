@@ -33,7 +33,7 @@ def main():
     # Args = Parser.parse_args()
     # NumFeatures = Args.NumFeatures
 
-    path = "Set1"
+    path = "Set2"
     os.makedirs(f'outputs/{path}', exist_ok=True)
 
     """
@@ -301,7 +301,8 @@ def main():
     homography_set = {}
     inliers_set = {}
     
-    # Initialize a list to store the cumulative homographies (key: (index, H)) encodes the homography H from index to key
+    # Initialize a list to store the cumulative homographies (key: (index, H)) encodes the homography H from 0 to key, 
+    # using index as the last image in the chain
     cumulative_homographies = {0: (0, np.eye(3))}  # Homography from 0 to 0 is the identity matrix
 
     for i, (im1, features1, desc1) in enumerate(zip(im_set[:-1], features_set[:-1], discriptors_set[:-1])):
@@ -324,7 +325,7 @@ def main():
             if i == 0:  # If we're at the first pair, just store the homography H
                 cumulative_homographies[j] = (0, H)
             else:  # For subsequent pairs, multiply by the previous cumulative homography
-                cumulative_homographies[j] = (i, H)
+                cumulative_homographies[j] = (i, cumulative_homographies[i][1] @ H)
             
             #  KeyPoints
             key1 = [cv2.KeyPoint(np.float32(x), np.float32(y), 1) for (x, y) in features1]
@@ -345,9 +346,18 @@ def main():
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         
         from_index, H = cumulative_homographies[i]
+
+        h, w = image.shape[:2]
+        new_width = w * 3
+        new_height = h * 3
+
+        # Translation matrix to center the image on the canvas
+        translation_matrix = np.array([[1, 0, w], [0, 1, h], [0, 0, 1]])
+
+        H_combined = translation_matrix @ np.linalg.inv(H)
         
         # Apply homography
-        warped = cv2.warpPerspective(image, np.linalg.inv(H), (image.shape[1] * 2, image.shape[0] * 2))
+        warped = cv2.warpPerspective(image, H_combined, (new_width, new_height))
         warped_images.append(warped)
         
         cv2.imwrite(f'outputs/{path}/warped_{from_index}_{i}.png', warped)
