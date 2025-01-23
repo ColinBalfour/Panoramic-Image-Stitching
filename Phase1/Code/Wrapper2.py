@@ -41,7 +41,7 @@ def main():
     """
     Read a set of images for Panorama stitching
     """
-    # im_set = [cv2.imread(f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Data/Train/{path}/{i + 1}.jpg') for i in range(3)]
+    # im_set = [cv2.imread(f'Phase1/Data/Train/{path}/{i + 1}.jpg') for i in range(len(os.listdir(f'Phase1/Data/Train/{path}')))]
     im_set = [cv2.imread(f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Data/Train/{path}/{i + 1}.jpg') for i in
               range(len(os.listdir(f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Data/Train/{path}')))]
 
@@ -279,9 +279,9 @@ def main():
         for i in range(N):
             # Randomly select 4 pairs
             random_pairs = np.random.choice(matches, 4, replace=False)
-            print("randompairs",random_pairs)
+            # print("randompairs",random_pairs)
             pairs = [[keypoints1[pair.queryIdx], keypoints2[pair.trainIdx]] for pair in random_pairs]
-            print("pairs", pairs)
+            # print("pairs", pairs)
 
             # Compute homography
             H = get_homography(pairs)
@@ -319,7 +319,7 @@ def main():
 
         pairs = [[keypoints1[pair.queryIdx], keypoints2[pair.trainIdx]] for pair in max_inliers]
         H = get_homography(pairs)
-        print("H", H)
+        # print("H", H)
         return True, H, max_inliers
 
     homography_set = {}
@@ -341,6 +341,8 @@ def main():
             ret, H, inliers = RANSAC(features1, features2, matches)
             if not ret:
                 continue
+            
+            print(f"Found homography from image {i} to {j}")
 
             homography_set[(i, j)] = H
             inliers_set[(i, j)] = inliers
@@ -409,7 +411,9 @@ def main():
 
         return (np.clip(result, 0, 1) * 255).astype(np.uint8)
 
-    if list(cumulative_homographies.keys()) != list(range(len(im_set))):
+    print(list(cumulative_homographies.keys()))
+    print(list(range(len(im_set))))
+    if sorted(list(cumulative_homographies.keys())) != list(range(len(im_set))):
         raise Exception("Could not find homographies for all pairs. Exiting...")
 
 
