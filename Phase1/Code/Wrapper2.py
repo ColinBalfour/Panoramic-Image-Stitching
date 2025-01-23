@@ -36,15 +36,17 @@ def main():
     # Args = Parser.parse_args()
     # NumFeatures = Args.NumFeatures
 
-    path = "Set1"
+    path = "Set3"
     os.makedirs(f'outputs/{path}', exist_ok=True)
 
     """
     Read a set of images for Panorama stitching
     """
-    # im_set = [cv2.imread(f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Data/Train/{path}/{i + 1}.jpg') for i in range(3)]
-    im_set = [cv2.imread(f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Data/Train/{path}/{i + 1}.jpg') for i in
-              range(len(os.listdir(f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Data/Train/{path}')))]
+    # DIR_PATH = f'Phase1/Data/Train/'
+    DIR_PATH = f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Data/Train/'
+    
+    im_set = [cv2.imread(f'{DIR_PATH}/{path}/{i + 1}.jpg') for i in
+              range(len(os.listdir(f'{DIR_PATH}/{path}')))]
 
     for im in im_set:
         cv2.imshow('image', im)
@@ -357,8 +359,9 @@ def main():
         max_width = max(img.shape[1] for img in warped_images)
         return max_height, max_width
 
-    if list(cumulative_homographies.keys()) != list(range(len(im_set))):
+    if sorted(list(cumulative_homographies.keys())) != list(range(len(im_set))):
         raise Exception("Could not find homographies for all pairs. Exiting...")
+    
     warped_images = []
     for i, image in enumerate(im_set):
         from_index, H = cumulative_homographies[i]
