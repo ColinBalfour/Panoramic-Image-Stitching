@@ -24,6 +24,7 @@ from scipy import sparse
 from scipy.sparse.linalg import spsolve
 import scipy.ndimage as ndimage
 from skimage.feature import peak_local_max
+from scipy.sparse import csr_matrix
 import os
 
 
@@ -35,13 +36,13 @@ def main():
     # Args = Parser.parse_args()
     # NumFeatures = Args.NumFeatures
 
-    path = "Set3"
+    path = "Set1"
     os.makedirs(f'outputs/{path}', exist_ok=True)
 
     """
     Read a set of images for Panorama stitching
     """
-    # im_set = [cv2.imread(f'Phase1/Data/Train/{path}/{i + 1}.jpg') for i in range(len(os.listdir(f'Phase1/Data/Train/{path}')))]
+    # im_set = [cv2.imread(f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Data/Train/{path}/{i + 1}.jpg') for i in range(3)]
     im_set = [cv2.imread(f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Data/Train/{path}/{i + 1}.jpg') for i in
               range(len(os.listdir(f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Data/Train/{path}')))]
 
@@ -255,34 +256,35 @@ def main():
         A_matrix = np.zeros((2 * n_pairs, 9))
         for i, pair in enumerate(pairs):
             x1, y1 = pair[0]
+            print("pairs in pair0", x1,y1)
             x2, y2 = pair[1]
+            print("pairs in pair1", x2, y2)
 
             row1 = 2 * i
             row2 = 2 * i + 1
 
-            A_matrix[row1] = [-x1, -y1, -1, 0, 0, 0, x1 * x2, y1 * x2, x2]
-            A_matrix[row2] = [0, 0, 0, -x1, -y1, -1, x1 * y2, y1 * y2, y2]
+            A_matrix[row1] = [x1, y1, 1, 0, 0, 0, -(x2*x1), -(x2 * y1), -x2]
+            A_matrix[row2] = [0, 0, 0, x1, y1, 1, -(y2 * x1), -(y2 * y1), -y2]
 
             # Use SVD to solve for homography
-        U, S, Vt = np.linalg.svd(A_matrix)
+        _, _, Vt = np.linalg.svd(A_matrix)
         h = Vt[-1]
         H = h.reshape(3, 3)
 
         # Normalize homography matrix
-        H = H / H[2, 2]
+        #H = H / H[2, 2]
 
         return H
 
-    def RANSAC(keypoints1, keypoints2, matches, tau=10, N=10000):
+    def RANSAC(keypoints1, keypoints2, matches, tau=3, N=15000):
         max_inliers = []
         best_homography = None
         for i in range(N):
             # Randomly select 4 pairs
             random_pairs = np.random.choice(matches, 4, replace=False)
-            # print("randompairs",random_pairs)
+            print("randompairs",random_pairs)
             pairs = [[keypoints1[pair.queryIdx], keypoints2[pair.trainIdx]] for pair in random_pairs]
-            # print("pairs", pairs)
-
+            print("pairs", pairs)
             # Compute homography
             H = get_homography(pairs)
 
@@ -290,21 +292,12 @@ def main():
             for pair in matches:
                 p1 = np.array(keypoints1[pair.queryIdx] + (1,))  # Adding 1 here
                 p2 = np.array(keypoints2[pair.trainIdx] + (1,))
-                # p1 = keypoints1[pair.queryIdx] + (1,))
-                # p2 = keypoints2[pair.trainIdx] + (1,))
-
                 p2_pred = H @ p1
                 p2_pred = p2_pred / p2_pred[2]
-
                 # Check if it's an inlier
                 error = np.linalg.norm(p2[:2] - p2_pred[:2])
                 if error < tau:
                     inliers.append(pair)
-
-                # p1_prime = H.dot(np.append(p1, 1))[:2]
-                #
-                # if np.linalg.norm(p2 - p1_prime) < tau:
-                #     inliers.append(pair)
 
             if len(inliers) > len(max_inliers):
                 max_inliers = inliers
@@ -319,7 +312,7 @@ def main():
 
         pairs = [[keypoints1[pair.queryIdx], keypoints2[pair.trainIdx]] for pair in max_inliers]
         H = get_homography(pairs)
-        # print("H", H)
+        print("H", H)
         return True, H, max_inliers
 
     homography_set = {}
@@ -327,8 +320,8 @@ def main():
 
     # Initialize a list to store the cumulative homographies (key: (index, H)) encodes the homography H from 0 to key,
     # using index as the last image in the chain
-    cumulative_homographies = {0: (0, np.eye(3))}  # Homography from 0 to 0 is the identity matrix
-
+    cumulative_homographies = {0: (0, np.eye(3))}
+    # Homography from 0 to 0 is the identity matrix
     for i, (im1, features1, desc1) in enumerate(zip(im_set[:-1], features_set[:-1], discriptors_set[:-1])):
         for j, (im2, features2, desc2) in enumerate(zip(im_set[i + 1:], features_set[i + 1:], discriptors_set[i + 1:]),
                                                     start=i + 1):
@@ -341,17 +334,17 @@ def main():
             ret, H, inliers = RANSAC(features1, features2, matches)
             if not ret:
                 continue
-            
-            print(f"Found homography from image {i} to {j}")
 
             homography_set[(i, j)] = H
+            #homography_set[(j, i)] = np.linalg.inv(H)
+
             inliers_set[(i, j)] = inliers
 
             # Compute cumulative homography from 0 to j (i.e., compose from 0 to i and i to j)
             if i == 0:  # If we're at the first pair, just store the homography H
                 cumulative_homographies[j] = (0, H)
             else:  # For subsequent pairs, multiply by the previous cumulative homography
-                cumulative_homographies[j] = (i, cumulative_homographies[i][1] @ H)
+                cumulative_homographies[j] = (i, H @ cumulative_homographies[i][1] )
 
             #  KeyPoints
             key1 = [cv2.KeyPoint(np.float32(x), np.float32(y), 1) for (x, y) in features1]
@@ -359,100 +352,144 @@ def main():
             out = cv2.drawMatches(im1, key1, im2, key2, inliers, None)
             cv2.imwrite(f'outputs/{path}/ransac_{i}_{j}.png', out)
 
-
     def get_panorama_size(warped_images):
         max_height = max(img.shape[0] for img in warped_images)
         max_width = max(img.shape[1] for img in warped_images)
         return max_height, max_width
 
-    def blend_with_mask(img1, img2, mask):
-        """
-        Blend images with transition mask
-        """
-        # Create distance transform for smooth transition
-        dist = cv2.distanceTransform(mask, cv2.DIST_L2, 3)
-        dist = cv2.normalize(dist, None, 0, 1, cv2.NORM_MINMAX)
-
-        # Create mask
-        blend_width = 50  # pixels
-        alpha = np.clip(dist / blend_width, 0, 1)
-        alpha = cv2.GaussianBlur(alpha, (0, 0), sigmaX=10)
-
-        # Blend images
-        result = img1.copy()
-        for c in range(3):  # For each color channel
-            result[:, :, c] = img2[:, :, c] * alpha + img1[:, :, c] * (1 - alpha)
-
-        return result
-
-    """
-	Image Warping + Blending
-	Save Panorama output as mypano.png
-	"""
-
-    def panorama_blend(warped_images):
-        result = warped_images[0].astype(np.float32) / 255.0
-
-        for i in range(1, len(warped_images)):
-            current = warped_images[i].astype(np.float32) / 255.0
-
-            # Create masks for overlap region
-            mask1 = (result.sum(axis=2) > 0).astype(np.uint8)
-            mask2 = (current.sum(axis=2) > 0).astype(np.uint8)
-            overlap = cv2.bitwise_and(mask1, mask2)
-
-            # Blend in overlap region
-            if overlap.sum() > 0:
-                result = blend_with_mask(result, current, overlap)
-
-            # Add non-overlapping regions
-            non_overlap = cv2.bitwise_xor(mask2, overlap)
-            result = np.where(non_overlap[:, :, np.newaxis] > 0, current, result)
-
-        return (np.clip(result, 0, 1) * 255).astype(np.uint8)
-
-    print(list(cumulative_homographies.keys()))
-    print(list(range(len(im_set))))
-    if sorted(list(cumulative_homographies.keys())) != list(range(len(im_set))):
+    if list(cumulative_homographies.keys()) != list(range(len(im_set))):
         raise Exception("Could not find homographies for all pairs. Exiting...")
-
-
     warped_images = []
     for i, image in enumerate(im_set):
         from_index, H = cumulative_homographies[i]
         h, w = image.shape[:2]
-        new_h= h*3
-        new_width= w*3
-
+        new_h = h * 3
+        new_width = w * 3
         # Translation matrix to center the image on the canvas
         translation_matrix = np.array([[1, 0, w], [0, 1, h], [0, 0, 1]])
         H_combined = translation_matrix @ np.linalg.inv(H)
-
         # Apply homography
         warped = cv2.warpPerspective(image, H_combined, (new_width, new_h))
         warped_images.append(warped)
-        #cv2.imwrite(f'outputs/{path}/warped_{from_index}_{i}.png', warped)
-
+        # cv2.imwrite(f'outputs/{path}/warped_{from_index}_{i}.png', warped)
         # Get maximum dimensions
         max_height, max_width = get_panorama_size(warped_images)
-
         # Resize all warped images to the same size
         warped_images = [cv2.resize(img, (max_width, max_height), interpolation=cv2.INTER_LINEAR)
                          if img.shape[:2] != (max_height, max_width) else img
                          for img in warped_images]
         cv2.imwrite(f'outputs/{path}/warped_{from_index}_{i}.png', warped)
 
-    # # combine all the warped images
-    # panorama = np.zeros_like(warped_images[0])
-    # for warped in warped_images:
-    #     panorama = cv2.add(panorama, warped)
-    panorama = panorama_blend(warped_images)
-    cv2.imwrite(f'outputs/{path}/mypano.png', panorama)
+    def create_overlap_mask(img1, img2):
+        """
+        Create a mask where both images have non-zero values
+        """
+        mask1 = np.any(img1 > 0, axis=2).astype(np.float32)
+        mask2 = np.any(img2 > 0, axis=2).astype(np.float32)
+        overlap_mask = mask1 * mask2
+        return overlap_mask
+
+    def create_distance_weights(overlap_mask):
+        """
+        Create weight maps based on distance transform from boundaries
+        """
+        # Get distance from boundaries for both images
+        dist1 = cv2.distanceTransform((overlap_mask > 0).astype(np.uint8), cv2.DIST_L2, 5)
+
+        # Normalize the distance transforms
+        dist1 = cv2.normalize(dist1, None, 0, 1, cv2.NORM_MINMAX)
+
+        # Create complementary weights
+        weights1 = dist1
+        weights2 = 1 - dist1
+
+        return weights1, weights2
+
+    def adjust_exposure(source, target, overlap_mask):
+        """
+        Adjust exposure of source image to match target in overlap region
+        """
+        # Convert to float32 for processing
+        source_float = source.astype(np.float32)
+        target_float = target.astype(np.float32)
+
+        # Create masks for valid pixels
+        source_valid = np.any(source > 0, axis=2)
+        target_valid = np.any(target > 0, axis=2)
+
+        adjusted = source.copy().astype(np.float32)
+
+        # Process each channel
+        for i in range(3):
+            # Calculate mean values in overlap region
+            source_mean = np.mean(source_float[:, :, i][overlap_mask > 0])
+            target_mean = np.mean(target_float[:, :, i][overlap_mask > 0])
+
+            if source_mean > 0:
+                # Calculate adjustment ratio
+                ratio = target_mean / source_mean
+                # Apply adjustment
+                adjusted[:, :, i] = source_float[:, :, i] * ratio
+
+        return np.clip(adjusted, 0, 255).astype(np.uint8)
+
+    def blend_images_complete(img1, img2):
+        """
+        Blend two images using their complete overlap area
+        """
+        # Create overlap mask
+        overlap_mask = create_overlap_mask(img1, img2)
+
+        # Adjust exposure of img1 to match img2 in overlap region
+        img1_adjusted = adjust_exposure(img1, img2, overlap_mask)
+
+        # Get weight maps for blending
+        weights1, weights2 = create_distance_weights(overlap_mask)
+
+        # Expand weights to 3 channels
+        weights1 = np.expand_dims(weights1, axis=2)
+        weights2 = np.expand_dims(weights2, axis=2)
+
+        # Perform weighted blending
+        blended = np.zeros_like(img1, dtype=np.float32)
+
+        # Where both images have content, blend using weights
+        overlap = (overlap_mask > 0)
+        blended[overlap] = (
+                img1_adjusted[overlap] * weights1[overlap] +
+                img2[overlap] * weights2[overlap]
+        )
+
+        # Where only img1 has content
+        img1_only = np.logical_and(np.any(img1 > 0, axis=2), ~overlap)
+        blended[img1_only] = img1_adjusted[img1_only]
+
+        # Where only img2 has content
+        img2_only = np.logical_and(np.any(img2 > 0, axis=2), ~overlap)
+        blended[img2_only] = img2[img2_only]
+
+        return np.clip(blended, 0, 255).astype(np.uint8)
+
+    def blend_image_sequence(warped_images):
+        """
+        Blend a sequence of warped images using complete image blending
+        """
+        if not warped_images:
+            return None
+
+        result = warped_images[0]
+
+        for i in range(1, len(warped_images)):
+            result = blend_images_complete(result, warped_images[i])
+            cv2.imwrite(f'outputs/{path}/blended_{i}.png', result)
+
+        return result
+
+    final_result = blend_image_sequence(warped_images)
+    #cv2.imwrite('final_blended_result.jpg', final_result)
+    cv2.imwrite(f'outputs/{path}/mypano.png', final_result)
+
     #cv2.imwrite(f'outputs/{path}/mypano.png', panorama)
-
-
-
-
 
 if __name__ == "__main__":
     main()
