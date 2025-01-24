@@ -28,7 +28,7 @@ from scipy.sparse import csr_matrix
 import os
 
 
-def main():
+def main(path="Set1", im_set=None):
     # Add any Command Line arguments here
     # Parser = argparse.ArgumentParser()
     # Parser.add_argument('--NumFeatures', default=100, help='Number of best features to extract from each image, Default:100')
@@ -36,17 +36,16 @@ def main():
     # Args = Parser.parse_args()
     # NumFeatures = Args.NumFeatures
 
-    path = "Set3"
     os.makedirs(f'outputs/{path}', exist_ok=True)
 
     """
     Read a set of images for Panorama stitching
     """
-    # DIR_PATH = f'Phase1/Data/Train/'
-    DIR_PATH = f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Data/Train/'
-    
-    im_set = [cv2.imread(f'{DIR_PATH}/{path}/{i + 1}.jpg') for i in
-              range(len(os.listdir(f'{DIR_PATH}/{path}')))]
+    DIR_PATH = f'Phase1/Data/Train/'
+    # DIR_PATH = f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Data/Train/'
+    if not im_set:
+        im_set = [cv2.imread(f'{DIR_PATH}/{path}/{i + 1}.jpg') for i in
+                range(len(os.listdir(f'{DIR_PATH}/{path}')))]
 
     for im in im_set:
         cv2.imshow('image', im)
@@ -258,9 +257,9 @@ def main():
         A_matrix = np.zeros((2 * n_pairs, 9))
         for i, pair in enumerate(pairs):
             x1, y1 = pair[0]
-            print("pairs in pair0", x1,y1)
+            # print("pairs in pair0", x1,y1)
             x2, y2 = pair[1]
-            print("pairs in pair1", x2, y2)
+            # print("pairs in pair1", x2, y2)
 
             row1 = 2 * i
             row2 = 2 * i + 1
@@ -284,9 +283,9 @@ def main():
         for i in range(N):
             # Randomly select 4 pairs
             random_pairs = np.random.choice(matches, 4, replace=False)
-            print("randompairs",random_pairs)
+            # print("randompairs",random_pairs)
             pairs = [[keypoints1[pair.queryIdx], keypoints2[pair.trainIdx]] for pair in random_pairs]
-            print("pairs", pairs)
+            # print("pairs", pairs)
             # Compute homography
             H = get_homography(pairs)
 
@@ -336,7 +335,9 @@ def main():
             ret, H, inliers = RANSAC(features1, features2, matches)
             if not ret:
                 continue
-
+            
+            print(f"Found homography from image {i} to {j}")
+            
             homography_set[(i, j)] = H
             #homography_set[(j, i)] = np.linalg.inv(H)
 
@@ -366,21 +367,69 @@ def main():
     for i, image in enumerate(im_set):
         from_index, H = cumulative_homographies[i]
         h, w = image.shape[:2]
-        new_h = h * 3
-        new_width = w * 3
+        from_h, from_w = im_set[from_index].shape[:2]
+        
+        # Calculate the corners of the image
+        corners = np.array([[0, 0], [0, h], [w, 0], [w, h]], dtype=np.float32)
+        from_corners = np.array([[0, 0], [0, from_h], [from_w, 0], [from_w, from_h]], dtype=np.float32)
+        # Transform the corners using the homography
+        transformed_corners = cv2.perspectiveTransform(np.array([corners]), H)[0]
+        
+        # Combine corners of both images
+        all_corners = np.vstack((transformed_corners, from_corners))
+        
+        # Find the bounding box of the combined corners
+        min_x = min(all_corners[:, 0])
+        max_x = max(all_corners[:, 0])
+        min_y = min(all_corners[:, 1])
+        max_y = max(all_corners[:, 1])
+        
+        
+        # Calculate the new canvas size
+        new_width = int(max_x - min_x)
+        new_h = int(max_y - min_y)
+        
         # Translation matrix to center the image on the canvas
-        translation_matrix = np.array([[1, 0, w], [0, 1, h], [0, 0, 1]])
-        H_combined = translation_matrix @ np.linalg.inv(H)
+        translation_matrix = np.array([[1, 0, -min_x], [0, 1, -min_y], [0, 0, 1]])
+        H_combined = np.linalg.inv(H) @ translation_matrix  
+        print(max_x, min_x, max_y, min_y)
+        
         # Apply homography
         warped = cv2.warpPerspective(image, H_combined, (new_width, new_h))
-        warped_images.append(warped)
+        # warped_images.append(warped)
+        
         # cv2.imwrite(f'outputs/{path}/warped_{from_index}_{i}.png', warped)
         # Get maximum dimensions
-        max_height, max_width = get_panorama_size(warped_images)
+        # max_height, max_width = get_panorama_size(warped_images)
+        
+        
+        # Pad all warped images to the same size
+        padded_images = []
+        for k, img in enumerate(warped_images):
+            padded_img = cv2.warpPerspective(img, np.eye(3), (new_width, new_h))
+            cv2.imwrite(f'outputs/{path}/padded_{k}.png', padded_img)
+            padded_images.append(padded_img)
+            
+        padded_images.append(warped)
+        cv2.imwrite(f'outputs/{path}/padded_{i}.png', warped)
+        
+        # padded_images = []
+        # for i, img in enumerate(warped_images):
+        #     h, w = img.shape[:2]
+        #     bottom = max_height - h
+        #     right = max_width - w
+        #     padded_img = cv2.copyMakeBorder(img, 0, bottom, 0, right, cv2.BORDER_CONSTANT, value=[0, 0, 0])
+        #     cv2.imwrite(f'outputs/{path}/padded_{i}.png', padded_img)
+        #     padded_images.append(padded_img)
+
+        warped_images = padded_images
+        
+        
         # Resize all warped images to the same size
-        warped_images = [cv2.resize(img, (max_width, max_height), interpolation=cv2.INTER_LINEAR)
-                         if img.shape[:2] != (max_height, max_width) else img
-                         for img in warped_images]
+        # warped_images = [cv2.resize(img, (max_width, max_height), interpolation=cv2.INTER_LINEAR)
+        #                  if img.shape[:2] != (max_height, max_width) else img
+        #                  for img in warped_images]
+
         cv2.imwrite(f'outputs/{path}/warped_{from_index}_{i}.png', warped)
 
     def create_overlap_mask(img1, img2):
@@ -493,7 +542,25 @@ def main():
     cv2.imwrite(f'outputs/{path}/mypano.png', final_result)
 
     #cv2.imwrite(f'outputs/{path}/mypano.png', panorama)
+    
+    return final_result
 
 if __name__ == "__main__":
-    main()
+    PAIRWISE = True
+    
+    if not PAIRWISE:
+        main()
+        exit()
+    
+    DIR_PATH = f'Phase1/Data/Train/'
+    # DIR_PATH = f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Data/Train/'
+    path = "Set1"
+    im_set = [cv2.imread(f'{DIR_PATH}/{path}/{i + 1}.jpg') for i in
+            range(len(os.listdir(f'{DIR_PATH}/{path}')))]
+    im_set = im_set[:2]
+    for i in range(len(im_set) - 1):
+        pano = main(path, im_set[i:i+2])
+        im_set[i+1] = pano
+        
+    cv2.imwrite(f'outputs/{path}/mypano.png', pano)
 
