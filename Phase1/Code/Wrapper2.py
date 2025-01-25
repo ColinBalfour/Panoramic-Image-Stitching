@@ -394,6 +394,13 @@ def main():
         #H_combined = translation_matrix @ np.linalg.inv(H)
         # Apply homography
         warped = cv2.warpPerspective(image, H_combined, (canvas_width, canvas_height))
+        #create mask
+        mask = cv2.threshold(warped, 0, 255, cv2.THRESH_BINARY)[1]
+        # Create erosion kernel
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_ERODE, kernel) # Erode mask to remove border artifacts
+        # Zero out border pixels
+        warped[mask == 0] = 0
         warped_images.append(warped)
         # cv2.imwrite(f'outputs/{path}/warped_{from_index}_{i}.png', warped)
         # Get maximum dimensions
