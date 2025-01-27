@@ -16,6 +16,10 @@ Worcester Polytechnic Institute
 
 import numpy as np
 import cv2
+import torch
+import logging
+from typing import List, Optional, Tuple
+import networkx as nx
 
 # Add any python libraries here
 import matplotlib.pyplot as plt
@@ -27,6 +31,14 @@ from skimage.feature import peak_local_max
 from scipy.sparse import csr_matrix
 import os
 
+# Check GPU availability
+print(f"CUDA available: {torch.cuda.is_available()}")
+print(f"GPU Device: {torch.cuda.get_device_name(0)}")
+
+if cv2.cuda.getCudaEnabledDeviceCount():
+    cv2.cuda.setDevice(0)
+    cv2.ocl.setUseOpenCL(True)
+
 
 def main():
     # Add any Command Line arguments here
@@ -36,7 +48,7 @@ def main():
     # Args = Parser.parse_args()
     # NumFeatures = Args.NumFeatures
 
-    path = "Set2"
+    path = "Set3"
     os.makedirs(f'outputs/{path}', exist_ok=True)
 
     """
@@ -44,9 +56,16 @@ def main():
     """
     # DIR_PATH = f'Phase1/Data/Train/'
     DIR_PATH = f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Data/Train/'
+    # resize_scale = 1/4
+    # im_set = [cv2.resize(cv2.imread(f'{DIR_PATH}/{path}/{i + 1}.jpg'), None, fx=resize_scale, fy=resize_scale)
+    #           for i in range(len(os.listdir(f'{DIR_PATH}/{path}')))]
 
     im_set = [cv2.imread(f'{DIR_PATH}/{path}/{i + 1}.jpg') for i in
               range(len(os.listdir(f'{DIR_PATH}/{path}')))]
+
+    # # Apply cylindrical warping
+    # focal_length = int(1.2 * im_set[0].shape[1])
+    # im_set = [cylindrical_warp(img, focal_length) for img in im_set]
 
     for im in im_set:
         cv2.imshow('image', im)
@@ -125,6 +144,7 @@ def main():
             features.append((y, x))
             dst[x, y] = 1
             im_set[i][x, y] = [0, 0, 255]
+
             # cv2.circle(im_set[i], (y, x), 1, (0, 0, 255))
 
         if not USE_SUBPIX:
@@ -159,6 +179,7 @@ def main():
 	Feature Descriptors
 	Save Feature Descriptor output as FD.png
 	"""
+
 
     def get_patch(image, center, patch_size=(41, 41)):
         """
@@ -212,7 +233,7 @@ def main():
 	"""
     match_set = []
 
-    def match_features(descriptors1, descriptors2, threshold=0.6):
+    def match_features(descriptors1, descriptors2, threshold=0.75):
         matches = []
         for i, descriptor in enumerate(descriptors1):
             # Sort descriptors in keypoints2 based on their distance to the current descriptor from keypoints1
@@ -225,6 +246,7 @@ def main():
                 matches.append(match)
 
         return matches
+
 
     matching_set = []
     # Match between all consecutive pairs
@@ -274,15 +296,16 @@ def main():
 
         # Normalize homography matrix
         # H = H / H[2, 2]
+        H = (1 / H.item(8)) * H
 
         return H
 
-    def RANSAC(keypoints1, keypoints2, matches, tau=2, N=20000):
+    def RANSAC(keypoints1, keypoints2, matches, tau= 1, N=20000):
         max_inliers = []
         best_homography = None
         for i in range(N):
             # Randomly select 4 pairs
-            random_pairs = np.random.choice(matches, 4, replace=False)
+            random_pairs = np.random.choice(matches, 4, replace= False)
             print("randompairs", random_pairs)
             pairs = [[keypoints1[pair.queryIdx], keypoints2[pair.trainIdx]] for pair in random_pairs]
             print("pairs", pairs)
@@ -291,13 +314,19 @@ def main():
 
             inliers = []
             for pair in matches:
-                p1 = np.array(keypoints1[pair.queryIdx] + (1,))  # Adding 1 here
-                p2 = np.array(keypoints2[pair.trainIdx] + (1,))
+                # p1 = np.array(keypoints1[pair.queryIdx] + (1,))
+                # # Adding 1 here
+                # p2 = np.array(keypoints2[pair.trainIdx] + (1,))
+                # Get x,y coordinates from keypoints
+                p1 = np.array([keypoints1[pair.queryIdx][0], keypoints1[pair.queryIdx][1], 1])
+                p2 = np.array([keypoints2[pair.trainIdx][0], keypoints2[pair.trainIdx][1], 1])
+
                 p2_pred = H @ p1
                 p2_pred = p2_pred / p2_pred[2]
                 # Check if it's an inlier
-                error = np.linalg.norm(p2[:2] - p2_pred[:2])
-                if error < tau:
+                #error = np.linalg.norm(p2[:2] - p2_pred[:2])
+                ssd = np.sum((p2[:2] - p2_pred[:2]) ** 2)
+                if ssd < tau:
                     inliers.append(pair)
 
             if len(inliers) > len(max_inliers):
@@ -344,8 +373,11 @@ def main():
             # Compute cumulative homography from 0 to j (i.e., compose from 0 to i and i to j)
             if i == 0:  # If we're at the first pair, just store the homography H
                 cumulative_homographies[j] = (0, H)
-            else:  # For subsequent pairs, multiply by the previous cumulative homography
-                cumulative_homographies[j] = (i, H @ cumulative_homographies[i][1])
+            else:
+                # For subsequent pairs, multiply by the previous cumulative homography
+                H_cumulative = H @ cumulative_homographies[i][1]
+                cumulative_homographies[j] = (i, H_cumulative)
+                #cumulative_homographies[j] = (i, H @ cumulative_homographies[i][1])
 
             #  KeyPoints
             key1 = [cv2.KeyPoint(np.float32(x), np.float32(y), 1) for (x, y) in features1]
@@ -361,10 +393,61 @@ def main():
     if sorted(list(cumulative_homographies.keys())) != list(range(len(im_set))):
         raise Exception("Could not find homographies for all pairs. Exiting...")
 
+    def equirectangular_warp(image, focal_length=500):
+        """
+        Apply equirectangular projection to an image
+
+        Args:
+        - image: Input image
+        - focal_length: Focal length parameter (default 500)
+
+        Returns:
+        - Warped image in equirectangular projection
+        """
+        h, w = image.shape[:2]
+
+        # Create coordinate grids more memory-efficiently
+        x_i = np.linspace(0, w - 1, w)
+        y_i = np.linspace(0, h - 1, h)
+        x_grid, y_grid = np.meshgrid(x_i, y_i)
+
+        # Normalize coordinates
+        x = (x_grid - w / 2) / focal_length
+        y = (y_grid - h / 2) / focal_length
+
+        # Equirectangular projection calculations
+        phi = x  # Horizontal angle
+        theta = y  # Vertical angle
+
+        # Prevent out-of-bounds errors with clipping
+        phi = np.clip(phi, -np.pi / 2, np.pi / 2)
+        theta = np.clip(theta, -np.pi / 2, np.pi / 2)
+
+        # Spherical coordinates
+        x_sphere = np.sin(phi)
+        y_sphere = np.sin(theta) * np.cos(phi)
+        z_sphere = np.cos(theta) * np.cos(phi)
+
+        # Project back to image plane
+        x_proj = focal_length * np.arctan2(x_sphere, z_sphere) + w / 2
+        y_proj = focal_length * np.arctan2(y_sphere, z_sphere) + h / 2
+
+        # Create remap matrices
+        map_x = x_proj.astype(np.float32)
+        map_y = y_proj.astype(np.float32)
+
+        # Apply remapping
+        warped = cv2.remap(image, map_x, map_y, cv2.INTER_LINEAR,
+                           borderMode=cv2.BORDER_CONSTANT,
+                           borderValue=(0, 0, 0))
+
+        return warped
+
     warped_images = []
     warped_images = []
     translation_offset = {}
     corners_list = []
+
 
 
     for i, image in enumerate(im_set):
@@ -381,34 +464,22 @@ def main():
     max_x, max_y = np.ceil(all_corners.max(axis=0)).astype(int)
     canvas_width = max_x - min_x
     canvas_height = max_y - min_y
+    MAX_CANVAS_SIZE = 30000
+    canvas_width = min(canvas_width, MAX_CANVAS_SIZE)
+    canvas_height = min(canvas_height, MAX_CANVAS_SIZE)
+    f = 500
 
     for i, image in enumerate(im_set):
         from_index, H = cumulative_homographies[i]
         h, w = image.shape[:2]
-        # new_h = h * 3
-        # new_width = w * 3
-        # Translation matrix to center the image on the canvas
-        #translation_matrix = np.array([[1, 0, w], [0, 1, h], [0, 0, 1]])
+        warped = equirectangular_warp(image, focal_length=f)
+      # homography transformation
         T = np.array([[1, 0, -min_x], [0, 1, -min_y], [0, 0, 1]])
         H_combined = T @ np.linalg.inv(H)
-        #H_combined = translation_matrix @ np.linalg.inv(H)
-        # Apply homography
-        warped = cv2.warpPerspective(image, H_combined, (canvas_width, canvas_height))
-        #create mask
-        mask = cv2.threshold(warped, 0, 255, cv2.THRESH_BINARY)[1]
-        # Create erosion kernel
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        mask = cv2.morphologyEx(mask, cv2.MORPH_ERODE, kernel) # Erode mask to remove border artifacts
-        # Zero out border pixels
-        warped[mask == 0] = 0
+        # both transformations
+        warped = cv2.warpPerspective(warped, H_combined,
+                                           (canvas_width, canvas_height))
         warped_images.append(warped)
-        # cv2.imwrite(f'outputs/{path}/warped_{from_index}_{i}.png', warped)
-        # Get maximum dimensions
-        #max_height, max_width = get_panorama_size(warped_images)
-        # Resize all warped images to the same size
-       #warped_images = [cv2.resize(img, (max_width, max_height), interpolation=cv2.INTER_LINEAR)
-                        # if img.shape[:2] != (max_height, max_width) else img
-                         #for img in warped_images]
         cv2.imwrite(f'outputs/{path}/warped_{from_index}_{i}.png', warped)
 
     def create_overlap_mask(img1, img2):
@@ -436,30 +507,50 @@ def main():
 
         return weights1, weights2
 
+    # def adjust_exposure(source, target, overlap_mask):
+    #     """
+    #     Adjust exposure of source image to match target in overlap region
+    #     """
+    #     # Convert to float32 for processing
+    #     source_float = source.astype(np.float32)
+    #     target_float = target.astype(np.float32)
+    #
+    #     # Create masks for valid pixels
+    #     source_valid = np.any(source > 0, axis=2)
+    #     target_valid = np.any(target > 0, axis=2)
+    #
+    #     adjusted = source.copy().astype(np.float32)
+    #
+    #     # Process each channel
+    #     for i in range(3):
+    #         # Calculate mean values in overlap region
+    #         source_mean = np.mean(source_float[:, :, i][overlap_mask > 0])
+    #         target_mean = np.mean(target_float[:, :, i][overlap_mask > 0])
+    #
+    #         if source_mean > 0:
+    #             # Calculate adjustment ratio
+    #             ratio = target_mean / source_mean
+    #             # Apply adjustment
+    #             adjusted[:, :, i] = source_float[:, :, i] * ratio
+    #
+    #     return np.clip(adjusted, 0, 255).astype(np.uint8)
+
     def adjust_exposure(source, target, overlap_mask):
-        """
-        Adjust exposure of source image to match target in overlap region
-        """
-        # Convert to float32 for processing
         source_float = source.astype(np.float32)
         target_float = target.astype(np.float32)
 
-        # Create masks for valid pixels
-        source_valid = np.any(source > 0, axis=2)
-        target_valid = np.any(target > 0, axis=2)
-
         adjusted = source.copy().astype(np.float32)
+        overlap_pixels = overlap_mask > 0
 
-        # Process each channel
+        if not np.any(overlap_pixels):
+            return source
+
         for i in range(3):
-            # Calculate mean values in overlap region
-            source_mean = np.mean(source_float[:, :, i][overlap_mask > 0])
-            target_mean = np.mean(target_float[:, :, i][overlap_mask > 0])
+            source_vals = source_float[:, :, i][overlap_pixels]
+            target_vals = target_float[:, :, i][overlap_pixels]
 
-            if source_mean > 0:
-                # Calculate adjustment ratio
-                ratio = target_mean / source_mean
-                # Apply adjustment
+            if len(source_vals) > 0 and source_vals.mean() > 0:
+                ratio = target_vals.mean() / source_vals.mean()
                 adjusted[:, :, i] = source_float[:, :, i] * ratio
 
         return np.clip(adjusted, 0, 255).astype(np.uint8)
