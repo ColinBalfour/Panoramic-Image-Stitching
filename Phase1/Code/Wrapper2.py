@@ -40,30 +40,35 @@ import os
 #     cv2.ocl.setUseOpenCL(True)
 
 
-def main():
+def main(path=None, im_set=None):
     # Add any Command Line arguments here
     # Parser = argparse.ArgumentParser()
     # Parser.add_argument('--NumFeatures', default=100, help='Number of best features to extract from each image, Default:100')
 
     # Args = Parser.parse_args()
     # NumFeatures = Args.NumFeatures
-
-    path = "Set3"
-    os.makedirs(f'outputs/{path}', exist_ok=True)
-
+    
     """
     Read a set of images for Panorama stitching
     """
-    # DIR_PATH = f'Phase1/Data/Train/'
-    DIR_PATH = f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Data/Train/'
+    # print(path)
+    if path is None:
+        path = "Set1"
+    os.makedirs(f'outputs/{path}', exist_ok=True)
+
+    
+    
     new_width = 600
     new_height = 450
 
-    im_set = [cv2.imread(f'{DIR_PATH}/{path}/{i + 1}.jpg') for i in
-              range(len(os.listdir(f'{DIR_PATH}/{path}')))]
-
+    if im_set is None:
+        # DIR_PATH = f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Data/Train/'
+        DIR_PATH = f'Phase1/Data/Train/'
+        im_set = [cv2.imread(f'{DIR_PATH}/{path}/{i + 1}.jpg') for i in
+                range(len(os.listdir(f'{DIR_PATH}/{path}')))]
+    
     #Comment below for Non Custom Images
-    im_set = [cv2.resize(img, (new_width, new_height), interpolation=cv2.INTER_CUBIC) for img in im_set]
+    # im_set = [cv2.resize(img, (new_width, new_height), interpolation=cv2.INTER_CUBIC) for img in im_set]
 
 
     # # Apply cylindrical warping
@@ -82,7 +87,7 @@ def main():
     corner_im = []
     for i, im in enumerate(im_set):
         gray = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
-        harris_corners = cv2.cornerHarris(gray, 2, 3, 0.06)
+        harris_corners = cv2.cornerHarris(gray, 5, 3, 0.04)
         corner_im.append(harris_corners)
         # print(harris_corners.shape, im.shape)
 
@@ -140,7 +145,7 @@ def main():
 
         cpy = deepcopy(im_set[i])
 
-        lm = peak_local_max(im, min_distance=4, threshold_rel=0.01)
+        lm = peak_local_max(im, min_distance=2, threshold_rel=0.01)
         dst = np.zeros(im.shape)
         features = []
         for x, y in lm:
@@ -154,7 +159,7 @@ def main():
             features_set.append(features)
 
         cv2.imwrite(f'outputs/{path}/anms{i}.png', im_set[i])
-
+    print(len(features_set[0]))
     #     # NOTE: might try to use later
     #     ### Subpixel accuracy ###
     #     dst = np.uint8(dst)
@@ -281,9 +286,9 @@ def main():
         A_matrix = np.zeros((2 * n_pairs, 9))
         for i, pair in enumerate(pairs):
             x1, y1 = pair[0]
-            print("pairs in pair0", x1, y1)
+            # print("pairs in pair0", x1, y1)
             x2, y2 = pair[1]
-            print("pairs in pair1", x2, y2)
+            # print("pairs in pair1", x2, y2)
 
             row1 = 2 * i
             row2 = 2 * i + 1
@@ -302,15 +307,15 @@ def main():
 
         return H
 
-    def RANSAC(keypoints1, keypoints2, matches, tau= 1, N=20000):
+    def RANSAC(keypoints1, keypoints2, matches, tau=.5, N=10000):
         max_inliers = []
         best_homography = None
         for i in range(N):
             # Randomly select 4 pairs
             random_pairs = np.random.choice(matches, 4, replace= False)
-            print("randompairs", random_pairs)
+            # print("randompairs", random_pairs)
             pairs = [[keypoints1[pair.queryIdx], keypoints2[pair.trainIdx]] for pair in random_pairs]
-            print("pairs", pairs)
+            # print("pairs", pairs)
             # Compute homography
             H = get_homography(pairs)
 
@@ -344,7 +349,7 @@ def main():
 
         pairs = [[keypoints1[pair.queryIdx], keypoints2[pair.trainIdx]] for pair in max_inliers]
         H = get_homography(pairs)
-        print("H", H)
+        # print("H", H)
         return True, H, max_inliers
 
     homography_set = {}
@@ -359,7 +364,7 @@ def main():
                                                     start=i + 1):
 
             matches = match_features(desc1, desc2)
-            if len(matches) < 8:
+            if len(matches) < 20:
                 continue
 
             matches = np.array(matches)
@@ -386,14 +391,16 @@ def main():
             key2 = [cv2.KeyPoint(np.float32(x), np.float32(y), 1) for (x, y) in features2]
             out = cv2.drawMatches(im1, key1, im2, key2, inliers, None)
             cv2.imwrite(f'outputs/{path}/ransac_{i}_{j}.png', out)
+            
+    if sorted(list(cumulative_homographies.keys())) != list(range(len(im_set))):
+        print("Could not find homographies for all pairs. Found pairs:")
+        print(sorted(list(cumulative_homographies.keys())))
+        # raise Exception("Could not find homographies for all pairs. Exiting...")
 
     def get_panorama_size(warped_images):
         max_height = max(img.shape[0] for img in warped_images)
         max_width = max(img.shape[1] for img in warped_images)
         return max_height, max_width
-
-    if sorted(list(cumulative_homographies.keys())) != list(range(len(im_set))):
-        raise Exception("Could not find homographies for all pairs. Exiting...")
 
     def equirectangular_warp(image, focal_length=500):
         """
@@ -451,8 +458,9 @@ def main():
     corners_list = []
 
 
-
-    for i, image in enumerate(im_set):
+    homography_idx = sorted(list(cumulative_homographies.keys()))
+    for i in homography_idx:
+        image = im_set[i]
         from_index, H = cumulative_homographies[i]
         h, w = image.shape[:2]
         corners = np.array([[0, 0, 1], [w, 0, 1], [w, h, 1], [0, h, 1]]).T
@@ -512,7 +520,8 @@ def main():
     #     warped_images.append(warped)
     #     cv2.imwrite(f'outputs/{path}/warped_{from_index}_{i}.png', warped)
 
-    for i, image in enumerate(im_set):
+    for i in homography_idx:
+        image = im_set[i] 
         from_index, H = cumulative_homographies[i]
         h, w = image.shape[:2]
         T = np.array([[1, 0, -min_x], [0, 1, -min_y], [0, 0, 1]])
@@ -537,7 +546,7 @@ def main():
         #                 if img.shape[:2] != (max_height, max_width) else img
         #                  for img in warped_images]
         cv2.imwrite(f'outputs/{path}/warped_{from_index}_{i}.png', warped)
-
+    
     def create_overlap_mask(img1, img2):
         """
         Create a mask where both images have non-zero values
@@ -663,12 +672,32 @@ def main():
 
         return result
 
+    print("finished stitching, blending...")
     final_result = blend_image_sequence(warped_images)
     # cv2.imwrite('final_blended_result.jpg', final_result)
     cv2.imwrite(f'outputs/{path}/mypano.png', final_result)
 
     # cv2.imwrite(f'outputs/{path}/mypano.png', panorama)
+    
+    return final_result
 
 
 if __name__ == "__main__":
-    main()
+    PAIRWISE = False
+    
+    path = "TestSet4"
+    DIR_PATH = f'Phase1/Data/Test/'
+    # DIR_PATH = f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Data/Train/'
+    im_set = [cv2.imread(f'{DIR_PATH}/{path}/{i + 1}.jpg') for i in
+            range(len(os.listdir(f'{DIR_PATH}/{path}')))]
+    
+    if not PAIRWISE:
+        main(path, im_set)
+        exit()
+    
+    # im_set = im_set[:2]
+    for i in range(len(im_set) - 1):
+        pano = main(path, im_set[i:i+2])
+        im_set[i+1] = pano
+        
+    cv2.imwrite(f'outputs/{path}/mypano.png', pano)
