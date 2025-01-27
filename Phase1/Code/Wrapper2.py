@@ -31,13 +31,13 @@ from skimage.feature import peak_local_max
 from scipy.sparse import csr_matrix
 import os
 
-# Check GPU availability
-print(f"CUDA available: {torch.cuda.is_available()}")
-print(f"GPU Device: {torch.cuda.get_device_name(0)}")
-
-if cv2.cuda.getCudaEnabledDeviceCount():
-    cv2.cuda.setDevice(0)
-    cv2.ocl.setUseOpenCL(True)
+# # Check GPU availability
+# print(f"CUDA available: {torch.cuda.is_available()}")
+# print(f"GPU Device: {torch.cuda.get_device_name(0)}")
+#
+# if cv2.cuda.getCudaEnabledDeviceCount():
+#     cv2.cuda.setDevice(0)
+#     cv2.ocl.setUseOpenCL(True)
 
 
 def main():
@@ -56,12 +56,15 @@ def main():
     """
     # DIR_PATH = f'Phase1/Data/Train/'
     DIR_PATH = f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Data/Train/'
-    # resize_scale = 1/4
-    # im_set = [cv2.resize(cv2.imread(f'{DIR_PATH}/{path}/{i + 1}.jpg'), None, fx=resize_scale, fy=resize_scale)
-    #           for i in range(len(os.listdir(f'{DIR_PATH}/{path}')))]
+    new_width = 600
+    new_height = 450
 
     im_set = [cv2.imread(f'{DIR_PATH}/{path}/{i + 1}.jpg') for i in
               range(len(os.listdir(f'{DIR_PATH}/{path}')))]
+
+    #Comment below for Non Custom Images
+    im_set = [cv2.resize(img, (new_width, new_height), interpolation=cv2.INTER_CUBIC) for img in im_set]
+
 
     # # Apply cylindrical warping
     # focal_length = int(1.2 * im_set[0].shape[1])
@@ -152,29 +155,28 @@ def main():
 
         cv2.imwrite(f'outputs/{path}/anms{i}.png', im_set[i])
 
-        # NOTE: might try to use later
-        ### Subpixel accuracy ###
-        dst = np.uint8(dst)
-        # find centroids
-        ret, labels, stats, centroids = cv2.connectedComponentsWithStats(dst)
-
-        # define the criteria to stop and refine the corners
-        criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.001)
-        corners = cv2.cornerSubPix(gray, np.float32(centroids), (5, 5), (-1, -1), criteria)
-
-        # print(corners)
-        if USE_SUBPIX:
-            features_set.append([np.int0([x, y]) for x, y in corners])
-
-        # Now draw them
-        res = np.hstack((centroids, corners))
-        res = np.int0(res)
-        cpy[res[:, 1], res[:, 0]] = [0, 0, 255]
-        cpy[res[:, 3], res[:, 2]] = [0, 255, 0]
-
-        # cv2.imwrite(f'corners_subpix{i}.png', cpy)
-        cv2.imwrite(f'outputs/{path}/corners_subpix{i}.png', cpy)
-
+    #     # NOTE: might try to use later
+    #     ### Subpixel accuracy ###
+    #     dst = np.uint8(dst)
+    #     # find centroids
+    #     ret, labels, stats, centroids = cv2.connectedComponentsWithStats(dst)
+    #
+    #     # define the criteria to stop and refine the corners
+    #     criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.001)
+    #     corners = cv2.cornerSubPix(gray, np.float32(centroids), (5, 5), (-1, -1), criteria)
+    #
+    #     # print(corners)
+    #     if USE_SUBPIX:
+    #         features_set.append([np.int0([x, y]) for x, y in corners])
+    #
+    #     # Now draw them
+    #     res = np.hstack((centroids, corners))
+    #     res = np.int0(res)
+    #     cpy[res[:, 1], res[:, 0]] = [0, 0, 255]
+    #     cpy[res[:, 3], res[:, 2]] = [0, 255, 0]
+    #
+    #     # cv2.imwrite(f'corners_subpix{i}.png', cpy)
+    #     cv2.imwrite(f'outputs/{path}/corners_subpix{i}.png', cpy)
     """
 	Feature Descriptors
 	Save Feature Descriptor output as FD.png
@@ -467,19 +469,73 @@ def main():
     MAX_CANVAS_SIZE = 30000
     canvas_width = min(canvas_width, MAX_CANVAS_SIZE)
     canvas_height = min(canvas_height, MAX_CANVAS_SIZE)
-    f = 500
+    f = 750
+
+    # for i, image in enumerate(im_set):
+    #     from_index, H = cumulative_homographies[i]
+    #     h, w = image.shape[:2]
+    #     warped = equirectangular_warp(image, focal_length=f)
+    #   # homography transformation
+    #     T = np.array([[1, 0, -min_x], [0, 1, -min_y], [0, 0, 1]])
+    #     H_combined = T @ np.linalg.inv(H)
+    #     # both transformations
+    #     warped = cv2.warpPerspective(warped, H_combined,
+    #                                        (canvas_width, canvas_height))
+    #     warped_images.append(warped)
+    #     cv2.imwrite(f'outputs/{path}/warped_{from_index}_{i}.png', warped)
+
+    # for i, image in enumerate(im_set):
+    #     from_index, H = cumulative_homographies[i]
+    #     h, w = image.shape[:2]
+    #
+    #     # cylindrical warping
+    #     y_i, x_i = np.indices((h, w))
+    #     x = (x_i - w / 2) / f
+    #     y = (y_i - h / 2) / f
+    #     theta = np.arctan(x)
+    #     h_i = y / np.sqrt(1 + x ** 2)
+    #     x_proj = f * theta + w / 2
+    #     y_proj = f * h_i + h / 2
+    #     map_x = x_proj.astype(np.float32)
+    #     map_y = y_proj.astype(np.float32)
+    #
+    #     # homography transformation
+    #     T = np.array([[1, 0, -min_x], [0, 1, -min_y], [0, 0, 1]])
+    #     H_combined = T @ np.linalg.inv(H)
+    #
+    #     # both transformations
+    #     cylindrical = cv2.remap(image, map_x, map_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+    #     mask = cv2.remap(np.ones_like(image), map_x, map_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+    #     cylindrical[mask < 0.9999] = 0
+    #     warped = cv2.warpPerspective(cylindrical, H_combined, (canvas_width, canvas_height))
+    #
+    #     warped_images.append(warped)
+    #     cv2.imwrite(f'outputs/{path}/warped_{from_index}_{i}.png', warped)
 
     for i, image in enumerate(im_set):
         from_index, H = cumulative_homographies[i]
         h, w = image.shape[:2]
-        warped = equirectangular_warp(image, focal_length=f)
-      # homography transformation
         T = np.array([[1, 0, -min_x], [0, 1, -min_y], [0, 0, 1]])
         H_combined = T @ np.linalg.inv(H)
-        # both transformations
-        warped = cv2.warpPerspective(warped, H_combined,
-                                           (canvas_width, canvas_height))
+        #H_combined = translation_matrix @ np.linalg.inv(H)
+        # Apply homography
+        # Limit canvas size
+        warped = cv2.warpPerspective(image, H_combined, (canvas_width, canvas_height))
+        #create mask
+        mask = cv2.threshold(warped, 0, 255, cv2.THRESH_BINARY)[1]
+        # # Create erosion kernel
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_ERODE, kernel) # Erode mask to remove border artifacts
+        # # Zero out border pixels
+        warped[mask == 0] = 0
         warped_images.append(warped)
+        # cv2.imwrite(f'outputs/{path}/warped_{from_index}_{i}.png', warped)
+        # Get maximum dimensions
+        # max_height, max_width = get_panorama_size(warped_images)
+        # # Resize all warped images to the same size
+        # warped_images = [cv2.resize(img, (max_width, max_height), interpolation=cv2.INTER_LINEAR)
+        #                 if img.shape[:2] != (max_height, max_width) else img
+        #                  for img in warped_images]
         cv2.imwrite(f'outputs/{path}/warped_{from_index}_{i}.png', warped)
 
     def create_overlap_mask(img1, img2):
