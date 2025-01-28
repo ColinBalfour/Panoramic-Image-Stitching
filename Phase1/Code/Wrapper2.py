@@ -31,6 +31,7 @@ from skimage.feature import peak_local_max
 from scipy.sparse import csr_matrix
 import os
 
+
 # # Check GPU availability
 # print(f"CUDA available: {torch.cuda.is_available()}")
 # print(f"GPU Device: {torch.cuda.get_device_name(0)}")
@@ -47,29 +48,26 @@ def main(path=None, im_set=None):
 
     # Args = Parser.parse_args()
     # NumFeatures = Args.NumFeatures
-    
+
     """
     Read a set of images for Panorama stitching
     """
     # print(path)
     if path is None:
-        path = "Set1"
+        path = "Set2"
     os.makedirs(f'outputs/{path}', exist_ok=True)
 
-    
-    
     new_width = 600
     new_height = 450
 
     if im_set is None:
-        # DIR_PATH = f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Data/Train/'
-        DIR_PATH = f'Phase1/Data/Train/'
+        DIR_PATH = f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Data/Train/'
+        #DIR_PATH = f'Phase1/Data/Train/'
         im_set = [cv2.imread(f'{DIR_PATH}/{path}/{i + 1}.jpg') for i in
-                range(len(os.listdir(f'{DIR_PATH}/{path}')))]
-    
-    #Comment below for Non Custom Images
-    # im_set = [cv2.resize(img, (new_width, new_height), interpolation=cv2.INTER_CUBIC) for img in im_set]
+                  range(len(os.listdir(f'{DIR_PATH}/{path}')))]
 
+    # Comment below for Non Custom Images
+    # im_set = [cv2.resize(img, (new_width, new_height), interpolation=cv2.INTER_CUBIC) for img in im_set]
 
     # # Apply cylindrical warping
     # focal_length = int(1.2 * im_set[0].shape[1])
@@ -134,6 +132,38 @@ def main(path=None, im_set=None):
 	Perform ANMS: Adaptive Non-Maximal Suppression
 	Save ANMS output as anms.png
 	"""
+    # features_set = []
+    # N_best = 500
+    # for img_index, im in enumerate(corner_im):
+    #     # Find local maxima using imregionalmax
+    #     lm = peak_local_max(im, min_distance=4)
+    #     N_strong = len(lm)
+    #
+    #     # Initialize r array
+    #     r = np.full(N_strong, np.inf)
+    #
+    #     # For each point, find distance to stronger corners
+    #     for i in range(N_strong):
+    #         y_i, x_i = lm[i]
+    #         for j in range(N_strong):
+    #             y_j, x_j = lm[j]
+    #             if im[y_j, x_j] > im[y_i, x_i]:
+    #                 ED = (x_j - x_i) ** 2 + (y_j - y_i) ** 2
+    #                 r[i] = min(r[i], ED)
+    #
+    #     # Get top N_best points
+    #     idx = np.argsort(r)[-N_best:]
+    #     best_points = lm[idx]
+    #
+    #     # Convert to (x,y) format and save
+    #     features = [(x, y) for y, x in best_points]
+    #     features_set.append(features)
+    #
+    #     # Draw points
+    #     vis_img = deepcopy(im_set[img_index])
+    #     for x, y in features:
+    #         cv2.circle(vis_img, (x, y), 3, (0, 0, 255), -1)
+    #     cv2.imwrite(f'outputs/{path}/anms{img_index}.png', vis_img)
 
     USE_SUBPIX = False
 
@@ -159,34 +189,11 @@ def main(path=None, im_set=None):
             features_set.append(features)
 
         cv2.imwrite(f'outputs/{path}/anms{i}.png', im_set[i])
-    print(len(features_set[0]))
-    #     # NOTE: might try to use later
-    #     ### Subpixel accuracy ###
-    #     dst = np.uint8(dst)
-    #     # find centroids
-    #     ret, labels, stats, centroids = cv2.connectedComponentsWithStats(dst)
-    #
-    #     # define the criteria to stop and refine the corners
-    #     criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.001)
-    #     corners = cv2.cornerSubPix(gray, np.float32(centroids), (5, 5), (-1, -1), criteria)
-    #
-    #     # print(corners)
-    #     if USE_SUBPIX:
-    #         features_set.append([np.int0([x, y]) for x, y in corners])
-    #
-    #     # Now draw them
-    #     res = np.hstack((centroids, corners))
-    #     res = np.int0(res)
-    #     cpy[res[:, 1], res[:, 0]] = [0, 0, 255]
-    #     cpy[res[:, 3], res[:, 2]] = [0, 255, 0]
-    #
-    #     # cv2.imwrite(f'corners_subpix{i}.png', cpy)
-    #     cv2.imwrite(f'outputs/{path}/corners_subpix{i}.png', cpy)
+
     """
 	Feature Descriptors
 	Save Feature Descriptor output as FD.png
 	"""
-
 
     def get_patch(image, center, patch_size=(41, 41)):
         """
@@ -254,7 +261,6 @@ def main(path=None, im_set=None):
 
         return matches
 
-
     matching_set = []
     # Match between all consecutive pairs
     for i, (im1, features1, desc1) in enumerate(zip(im_set[:-1], features_set[:-1], discriptors_set[:-1])):
@@ -273,7 +279,7 @@ def main(path=None, im_set=None):
             out = cv2.drawMatches(im1, key1, im2, key2, matches, None)
             cv2.imwrite(f'outputs/{path}/matching_{i}_{j}.png', out)
 
-            print(f"Matched images {i} and {j}: Found {len(matches)} matches")
+            #print(f"Matched images {i} and {j}: Found {len(matches)} matches")
             # print(match_set)
     # matches = matching_set[0]
 
@@ -312,7 +318,7 @@ def main(path=None, im_set=None):
         best_homography = None
         for i in range(N):
             # Randomly select 4 pairs
-            random_pairs = np.random.choice(matches, 4, replace= False)
+            random_pairs = np.random.choice(matches, 4, replace=False)
             # print("randompairs", random_pairs)
             pairs = [[keypoints1[pair.queryIdx], keypoints2[pair.trainIdx]] for pair in random_pairs]
             # print("pairs", pairs)
@@ -331,7 +337,7 @@ def main(path=None, im_set=None):
                 p2_pred = H @ p1
                 p2_pred = p2_pred / p2_pred[2]
                 # Check if it's an inlier
-                #error = np.linalg.norm(p2[:2] - p2_pred[:2])
+                # error = np.linalg.norm(p2[:2] - p2_pred[:2])
                 ssd = np.sum((p2[:2] - p2_pred[:2]) ** 2)
                 if ssd < tau:
                     inliers.append(pair)
@@ -384,14 +390,14 @@ def main(path=None, im_set=None):
                 # For subsequent pairs, multiply by the previous cumulative homography
                 H_cumulative = H @ cumulative_homographies[i][1]
                 cumulative_homographies[j] = (i, H_cumulative)
-                #cumulative_homographies[j] = (i, H @ cumulative_homographies[i][1])
+                # cumulative_homographies[j] = (i, H @ cumulative_homographies[i][1])
 
             #  KeyPoints
             key1 = [cv2.KeyPoint(np.float32(x), np.float32(y), 1) for (x, y) in features1]
             key2 = [cv2.KeyPoint(np.float32(x), np.float32(y), 1) for (x, y) in features2]
             out = cv2.drawMatches(im1, key1, im2, key2, inliers, None)
             cv2.imwrite(f'outputs/{path}/ransac_{i}_{j}.png', out)
-            
+
     if sorted(list(cumulative_homographies.keys())) != list(range(len(im_set))):
         print("Could not find homographies for all pairs. Found pairs:")
         print(sorted(list(cumulative_homographies.keys())))
@@ -457,7 +463,6 @@ def main(path=None, im_set=None):
     translation_offset = {}
     corners_list = []
 
-
     homography_idx = sorted(list(cumulative_homographies.keys()))
     for i in homography_idx:
         image = im_set[i]
@@ -468,7 +473,7 @@ def main(path=None, im_set=None):
         warped_corners = warped_corners / warped_corners[2]
         corners_list.append(warped_corners[:2].T)
 
-    #size of canvas
+    # size of canvas
     all_corners = np.vstack(corners_list)
     min_x, min_y = np.floor(all_corners.min(axis=0)).astype(int)
     max_x, max_y = np.ceil(all_corners.max(axis=0)).astype(int)
@@ -521,20 +526,20 @@ def main(path=None, im_set=None):
     #     cv2.imwrite(f'outputs/{path}/warped_{from_index}_{i}.png', warped)
 
     for i in homography_idx:
-        image = im_set[i] 
+        image = im_set[i]
         from_index, H = cumulative_homographies[i]
         h, w = image.shape[:2]
         T = np.array([[1, 0, -min_x], [0, 1, -min_y], [0, 0, 1]])
         H_combined = T @ np.linalg.inv(H)
-        #H_combined = translation_matrix @ np.linalg.inv(H)
+        # H_combined = translation_matrix @ np.linalg.inv(H)
         # Apply homography
         # Limit canvas size
         warped = cv2.warpPerspective(image, H_combined, (canvas_width, canvas_height))
-        #create mask
+        # create mask
         mask = cv2.threshold(warped, 0, 255, cv2.THRESH_BINARY)[1]
         # # Create erosion kernel
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        mask = cv2.morphologyEx(mask, cv2.MORPH_ERODE, kernel) # Erode mask to remove border artifacts
+        mask = cv2.morphologyEx(mask, cv2.MORPH_ERODE, kernel)  # Erode mask to remove border artifacts
         # # Zero out border pixels
         warped[mask == 0] = 0
         warped_images.append(warped)
@@ -546,7 +551,7 @@ def main(path=None, im_set=None):
         #                 if img.shape[:2] != (max_height, max_width) else img
         #                  for img in warped_images]
         cv2.imwrite(f'outputs/{path}/warped_{from_index}_{i}.png', warped)
-    
+
     def create_overlap_mask(img1, img2):
         """
         Create a mask where both images have non-zero values
@@ -678,26 +683,26 @@ def main(path=None, im_set=None):
     cv2.imwrite(f'outputs/{path}/mypano.png', final_result)
 
     # cv2.imwrite(f'outputs/{path}/mypano.png', panorama)
-    
+
     return final_result
 
 
 if __name__ == "__main__":
     PAIRWISE = False
-    
+
     path = "TestSet4"
-    DIR_PATH = f'Phase1/Data/Test/'
-    # DIR_PATH = f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Data/Train/'
+    #DIR_PATH = f'Phase1/Data/Test/'
+    DIR_PATH = f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Data/Test/'
     im_set = [cv2.imread(f'{DIR_PATH}/{path}/{i + 1}.jpg') for i in
-            range(len(os.listdir(f'{DIR_PATH}/{path}')))]
-    
+              range(len(os.listdir(f'{DIR_PATH}/{path}')))]
+
     if not PAIRWISE:
         main(path, im_set)
         exit()
-    
+
     # im_set = im_set[:2]
     for i in range(len(im_set) - 1):
-        pano = main(path, im_set[i:i+2])
-        im_set[i+1] = pano
-        
+        pano = main(path, im_set[i:i + 2])
+        im_set[i + 1] = pano
+
     cv2.imwrite(f'outputs/{path}/mypano.png', pano)
