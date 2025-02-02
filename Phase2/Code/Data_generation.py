@@ -17,22 +17,22 @@ def patch_pairs_generation(image, path):
     patch_size = 128
     h, w = im.shape
     rho = 32
-    # top_left_corner = (32,32) #top_point
-    # top_right_corner = (patch_size + 32, 32) #left_point
-    # bottom_right_corner = (patch_size + 32, patch_size + 32) #bottom_point
-    # bottom_left_corner = (32, patch_size + 32)  #right_point
+    top_left_corner = (32,32) #top_point
+    top_right_corner = (patch_size + 32, 32) #left_point
+    bottom_right_corner = (patch_size + 32, patch_size + 32) #bottom_point
+    bottom_left_corner = (32, patch_size + 32)  #right_point
 
     # Below with offset for translating better
     # Add a random translation amount (fixed for all 4 points) such that your network would work for translated images as well.
-    top_left_corner = (64, 64) #top_point
-    top_right_corner = (patch_size + 64, 64) #left_point
-    bottom_right_corner = (patch_size + 64, patch_size + 64) #bottom_point
-    bottom_left_corner = (64, patch_size + 64)  #right_point
+    # top_left_corner = (64, 64) #top_point
+    # top_right_corner = (patch_size + 64, 64) #left_point
+    # bottom_right_corner = (patch_size + 64, patch_size + 64) #bottom_point
+    # bottom_left_corner = (64, patch_size + 64)  #right_point
 
     # fixed point
     # Calculate safe translation bounds
-    dx = 24 # ~48 pixels
-    dy = 24  # ~28 pixels
+    # dx = 24 # ~48 pixels
+    # dy = 24  # ~28 pixels
 
     # Apply translation to base coordinates
     top_left_corner = (int(top_left_corner[0] + dx), int(top_left_corner[1] + dy))
