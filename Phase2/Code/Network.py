@@ -16,7 +16,7 @@ import torch
 import numpy as np
 import torch.nn.functional as F
 import pytorch_lightning as pl
-#import kornia  # You can use this to get the transform and warp in this project
+import kornia  # You can use this to get the transform and warp in this project
 
 # Don't generate pyc codes
 sys.dont_write_bytecode = True
@@ -35,6 +35,12 @@ def LossFn(out, target):
     criterion = nn.MSELoss()
     loss = criterion(out, target.view(-1, 8))
     return loss
+
+def photometric_loss(I1, I2, H):
+    warped = kornia.warp_perspective(I1, H, dsize=(I1.shape[3], I1.shape[2]))
+    loss = torch.mean(torch.abs(I2 - warped))
+    return loss
+    
 
 
 
@@ -90,7 +96,6 @@ class HomographyBase(nn.Module):
 
 
 
-
 class HomographyNet(HomographyBase):
     def __init__(self, InputSize, OutputSize):
         """
@@ -138,25 +143,50 @@ class HomographyNet(HomographyBase):
         # size for your Spatial transformer network layer!
         #############################
         # Spatial transformer localization-network
-        # self.localization = nn.Sequential(
-        #     nn.Conv2d(1, 8, kernel_size=7),
-        #     nn.MaxPool2d(2, stride=2),
-        #     nn.ReLU(True),
-        #     nn.Conv2d(8, 10, kernel_size=5),
-        #     nn.MaxPool2d(2, stride=2),
-        #     nn.ReLU(True),
-        # )
-        #
-        # # Regressor for the 3 * 2 affine matrix
-        # self.fc_loc = nn.Sequential(
-        #     nn.Linear(10 * 3 * 3, 32), nn.ReLU(True), nn.Linear(32, 3 * 2)
-        # )
-        #
-        # # Initialize the weights/bias with identity transformation
-        # self.fc_loc[2].weight.data.zero_()
-        # self.fc_loc[2].bias.data.copy_(
-        #     torch.tensor([1, 0, 0, 0, 1, 0], dtype=torch.float)
-        #)
+        self.localization = nn.Sequential(
+            nn.Conv2d(1, 8, kernel_size=7),
+            nn.MaxPool2d(2, stride=2),
+            nn.ReLU(True),
+            nn.Conv2d(8, 10, kernel_size=5),
+            nn.MaxPool2d(2, stride=2),
+            nn.ReLU(True),
+        )
+        
+        # Regressor for the 3 * 2 affine matrix
+        self.fc_loc = nn.Sequential(
+            nn.Linear(10 * 3 * 3, 32), nn.ReLU(True), nn.Linear(32, 3 * 2)
+        )
+        
+        # Initialize the weights/bias with identity transformation
+        self.fc_loc[2].weight.data.zero_()
+        self.fc_loc[2].bias.data.copy_(
+            torch.tensor([1, 0, 0, 0, 1, 0], dtype=torch.float)
+        )
+        
+        
+    def TensorDLT(self, H4pt, C_A):
+        # im like 75% sure this is wrong gonna update later
+        A_matrix = torch.zeros((8, 8))
+        B_matrix = torch.zeros((8, 1))
+        for i, pair in enumerate(C_A):
+            x1, y1 = pair
+            # xi' = H * xi
+            x2, y2 = H4pt[i].matmul(torch.tensor([x1, y1, 1]))
+
+            row1 = 2 * i
+            row2 = 2 * i + 1
+
+            A_matrix[row2] = [x1, y1, 1, 0, 0, 0, -(x2 * x1), -(x2 * y1)]
+            A_matrix[row1] = [0, 0, 0, x1, y1, 1, -(y2 * x1), -(y2 * y1)]
+            
+            B_matrix[row1] = [-x2, y2]
+
+        #pseudo inverse of A
+        A_inv = torch.inverse(A_matrix)
+        H = A_inv.matmul(B_matrix)
+
+        return H
+
 
     #############################
     # You will need to change the input size and output
