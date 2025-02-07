@@ -53,7 +53,7 @@ from tqdm import tqdm
 import torch.optim as optim
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 class COCOCustom(torch.utils.data.Dataset):
-    def __init__(self, root_dir, transform = None ): #, labels_path, transform=None, dataset_type="train"):
+    def __init__(self, root_dir, transform = None , istest = False): #, labels_path, transform=None, dataset_type="train"):
         """
         Args:
             root_dir: Directory with all images (1 to 50000)
@@ -82,12 +82,21 @@ class COCOCustom(torch.utils.data.Dataset):
             #X= X + (x,)
             X.append(x)
 
+            if istest is True:
             # Get homography and normalize
-            y = torch.from_numpy(output['homography'].astype(np.float32) / 32.0)
-            y = y.float().to(device)
+                y = torch.from_numpy(output['homography'].astype(np.float32) / 64.0)
+                y = y.float().to(device)
+                Y.append(y)
+
+            else:
+
+                # Get homography and normalize
+                y = torch.from_numpy(output['homography'].astype(np.float32) / 32.0)
+                y = y.float().to(device)
+                Y.append(y)
 
             # Y = Y + (y,)
-            Y.append(y)
+
 
             i = i + 1
         self.len  = i
@@ -137,10 +146,12 @@ def GenerateBatch(TrainSet,  MiniBatchSize, istest = False):
 
         ##########################################################
         # Add any standardization or data augmentation here!
+
         ##########################################################
         # I1 = np.float32(cv2.imread(RandImageName))
         # Coordinates = TrainCoordinates[RandIdx]
         I1 , Coordinates = TrainSet[RandIdx]
+
         print("shapeI1", I1.shape)
         # Append All Images and Mask
         I1Batch.append(I1)
@@ -148,6 +159,71 @@ def GenerateBatch(TrainSet,  MiniBatchSize, istest = False):
         ImageNum += 1
 
     return torch.stack(I1Batch).to(device), torch.stack(CoordinatesBatch).to(device)
+
+# def GenerateBatch(TrainSet,  MiniBatchSize, istest = False):
+#     """
+#     Inputs:
+#     BasePath - Path to COCO folder without "/" at the end
+#     DirNamesTrain - Variable with Subfolder paths to train files
+#     NOTE that Train can be replaced by Val/Test for generating batch corresponding to validation (held-out testing in this case)/testing
+#     TrainCoordinates - Coordinatess corresponding to Train
+#     NOTE that TrainCoordinates can be replaced by Val/TestCoordinatess for generating batch corresponding to validation (held-out testing in this case)/testing
+#     ImageSize - Size of the Image
+#     MiniBatchSize is the size of the MiniBatch
+#     Outputs:
+#     I1Batch - Batch of images
+#     CoordinatesBatch - Batch of coordinates
+#     """
+#     I1Batch = []
+#     CoordinatesBatch = []
+#
+#     ImageNum = 0
+#     while ImageNum < MiniBatchSize:
+#         # Generate random image
+#         RandIdx = random.randint(0, len(TrainSet) - 1)
+#
+#         #RandImageName = BasePath + os.sep + DirNamesTrain[RandIdx] + ".jpg"
+#
+#
+#         ##########################################################
+#         # Add any standardization or data augmentation here!
+#
+#         ##########################################################
+#         # I1 = np.float32(cv2.imread(RandImageName))
+#         # Coordinates = TrainCoordinates[RandIdx]
+#         I1, Coordinates = TrainSet[RandIdx]
+#         if not istest:
+#             if random.random() < 0.5:
+#                 noise = torch.randn_like(I1) * 0.02
+#                 I1 = I1 + noise
+#
+#             # Random brightness adjustment (works with any number of channels)
+#             if random.random() < 0.5:
+#                 brightness_factor = 1.0 + (random.random() - 0.5) * 0.2  # ±10% change
+#                 I1 = I1 * brightness_factor
+#
+#             # Random contrast adjustment (works with any number of channels)
+#             if random.random() < 0.5:
+#                 contrast_factor = 1.0 + (random.random() - 0.5) * 0.2  # ±10% change
+#                 mean = torch.mean(I1, dim=(1, 2), keepdim=True)
+#                 I1 = (I1 - mean) * contrast_factor + mean
+#
+#             # Gaussian blur (works with any number of channels)
+#             if random.random() < 0.3:
+#                 blur = transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0))
+#                 I1 = blur(I1)
+#
+#             # Ensure values stay in valid range
+#             I1 = torch.clamp(I1, -1, 1)
+#
+#         print("shapeI1", I1.shape)
+#         # Append All Images and Mask
+#         I1Batch.append(I1)
+#         CoordinatesBatch.append(Coordinates)
+#         ImageNum += 1
+#
+#     return torch.stack(I1Batch).to(device), torch.stack(CoordinatesBatch).to(device)
+
 
 
 def PrettyPrint(NumEpochs, DivTrain, MiniBatchSize, NumTrainSamples, LatestFile):
@@ -323,7 +399,7 @@ def TrainOperation(DirNamesTrain, NumTrainSamples, ImageSize,NumEpochs,MiniBatch
         with torch.no_grad(): # disable gradient
             for PerEpochCounter in tqdm(range(NumIterationsPerEpoch)):
                 #Generate a batch
-                TestBatch = GenerateBatch(TestSet, MiniBatchSize)
+                TestBatch = GenerateBatch(TestSet, MiniBatchSize, istest=True)
                 I1Batch, CoordinatesBatch = TestBatch
 
                 #GPU
@@ -355,6 +431,23 @@ def TrainOperation(DirNamesTrain, NumTrainSamples, ImageSize,NumEpochs,MiniBatch
 
     Training_Stop = toc(Training_time)
     print("Training Complete and training time: ", Training_Stop- Training_time)
+    # # Convert to numpy arrays
+    # all_Test_Prediction = np.array(all_Test_Prediction)
+    # all_Test_Label = np.array(all_Test_Label)
+    # plt.figure(figsize=(15, 10))
+    # for i in range(8):  # 8 homography parameters
+    #     plt.subplot(2, 4, i + 1)
+    #     plt.scatter(range(len(all_Test_Prediction)), all_Test_Prediction[:, i],
+    #                 label='Predicted', alpha=0.5)
+    #     plt.scatter(range(len(all_Test_Label)), all_Test_Label[:, i],
+    #                 label='Ground Truth', alpha=0.5)
+    #     plt.title(f'Parameter H{i + 1}')
+    #     plt.xlabel('Sample Index')
+    #     plt.ylabel('Value')
+    #     if i == 0:  # Only show legend for first subplot
+    #         plt.legend()
+    # plt.tight_layout()
+    # plt.show()
 
     # Plot both testing and training loss
     plt.plot(range(NumEpochs), epoch_losses, label='Training loss')
@@ -410,7 +503,7 @@ def main():
     )
     Parser.add_argument(
         "--CheckPointPath",
-        default="D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Code/TxtFiles/Checkpointsfinal/",
+        default="D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Code/TxtFiles/Checkpointstrial/",
         help="Path to save Checkpoints, Default: ../Checkpoints/",
     )
 
@@ -445,7 +538,7 @@ def main():
     )
     Parser.add_argument(
         "--LogsPath",
-        default="D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Code/TxtFiles/LogsFinalTrain/",
+        default="D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Code/TxtFiles/LogsFinalTraintrial/",
         help="Path to save Logs for Tensorboard, Default=Logs/",
     )
 
@@ -483,7 +576,7 @@ def main():
         LatestFile = None
 
     TrainSet = COCOCustom(root_dir=BasePath)
-    TestSet = COCOCustom(root_dir= "D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Data/Val/TestDatafinal")
+    TestSet = COCOCustom(root_dir= "D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Data/Val/TestDatafinal", istest = True)
 
     #Train_dataloader = DataLoader(TrainSet, batch_size=64, shuffle=True)
     # Pretty print stats
