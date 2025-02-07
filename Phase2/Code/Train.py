@@ -23,7 +23,8 @@ import torchvision
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import datasets, transforms
 from torch.optim import AdamW
-from Network.Network import HomographyModel
+from Network.Network import HomographyNet
+from torch.utils.data import DataLoader
 import cv2
 import sys
 import os
@@ -34,22 +35,82 @@ import PIL
 import os
 import glob
 import random
-from skimage import data, exposure, img_as_float
+#from skimage import data, exposure, img_as_float
 import matplotlib.pyplot as plt
 import numpy as np
 import time
 from Misc.MiscUtils import *
 from Misc.DataUtils import *
+from Network.Network import *
+#from Network.Network import HomographyNet, LossFn
 from torchvision.transforms import ToTensor
 import argparse
 import shutil
 import string
-from termcolor import colored, cprint
+#from termcolor import colored, cprint
 import math as m
 from tqdm import tqdm
+import torch.optim as optim
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+class COCOCustom(torch.utils.data.Dataset):
+    def __init__(self, root_dir, transform = None ): #, labels_path, transform=None, dataset_type="train"):
+        """
+        Args:
+            root_dir: Directory with all images (1 to 50000)
+            labels_path: Path to LabelsTrain.txt
+            transform: Optional transform to be applied
+        """
+        self.root_dir = root_dir
+        self.transform = transform
+        # X = ()
+        # Y = ()
+        X =[]
+        Y =[]
+        # Get list of all .npy files
+        self.data = sorted([f for f in os.listdir(root_dir) if f.endswith('.npy')])
+        i = 0
+        train_coordinates = []
+
+        # Load each file
+        for im in self.data:
+            file_path= os.path.join(self.root_dir, im)
+            output = np.load(file_path, allow_pickle=True).item()
+            # Get image patches and normalize
+            x = torch.from_numpy((output['img'].astype(np.float32) - 127.5) / 127.5)
+            x = x.permute(2,0,1).float().to(device)
+            #print("xshape", x.shape)
+            #X= X + (x,)
+            X.append(x)
+
+            # Get homography and normalize
+            y = torch.from_numpy(output['homography'].astype(np.float32) / 32.0)
+            y = y.float().to(device)
+
+            # Y = Y + (y,)
+            Y.append(y)
+
+            i = i + 1
+        self.len  = i
+        self.X_data = X
+        self.Y_data = Y
+
+    def __len__(self):
+        """Return total number of samples"""
+        #return len(self.X_data)
+        return self.len
+
+    def __getitem__(self, index):
+        """Get a single data pair"""
+        x = self.X_data[index]
+        print("xshape2", x.shape)
+        y = self.Y_data[index]
+        if self.transform:
+            x = self.transform(x)
+
+        return x, y
 
 
-def GenerateBatch(BasePath, DirNamesTrain, TrainCoordinates, ImageSize, MiniBatchSize):
+def GenerateBatch(TrainSet,  MiniBatchSize, istest = False):
     """
     Inputs:
     BasePath - Path to COCO folder without "/" at the end
@@ -69,22 +130,24 @@ def GenerateBatch(BasePath, DirNamesTrain, TrainCoordinates, ImageSize, MiniBatc
     ImageNum = 0
     while ImageNum < MiniBatchSize:
         # Generate random image
-        RandIdx = random.randint(0, len(DirNamesTrain) - 1)
+        RandIdx = random.randint(0, len(TrainSet) - 1)
 
-        RandImageName = BasePath + os.sep + DirNamesTrain[RandIdx] + ".jpg"
-        ImageNum += 1
+        #RandImageName = BasePath + os.sep + DirNamesTrain[RandIdx] + ".jpg"
+
 
         ##########################################################
         # Add any standardization or data augmentation here!
         ##########################################################
-        I1 = np.float32(cv2.imread(RandImageName))
-        Coordinates = TrainCoordinates[RandIdx]
-
+        # I1 = np.float32(cv2.imread(RandImageName))
+        # Coordinates = TrainCoordinates[RandIdx]
+        I1 , Coordinates = TrainSet[RandIdx]
+        print("shapeI1", I1.shape)
         # Append All Images and Mask
-        I1Batch.append(torch.from_numpy(I1))
-        CoordinatesBatch.append(torch.tensor(Coordinates))
+        I1Batch.append(I1)
+        CoordinatesBatch.append(Coordinates)
+        ImageNum += 1
 
-    return torch.stack(I1Batch), torch.stack(CoordinatesBatch)
+    return torch.stack(I1Batch).to(device), torch.stack(CoordinatesBatch).to(device)
 
 
 def PrettyPrint(NumEpochs, DivTrain, MiniBatchSize, NumTrainSamples, LatestFile):
@@ -99,20 +162,11 @@ def PrettyPrint(NumEpochs, DivTrain, MiniBatchSize, NumTrainSamples, LatestFile)
         print("Loading latest checkpoint with the name " + LatestFile)
 
 
-def TrainOperation(
-    DirNamesTrain,
-    TrainCoordinates,
-    NumTrainSamples,
-    ImageSize,
-    NumEpochs,
-    MiniBatchSize,
-    SaveCheckPoint,
-    CheckPointPath,
+def TrainOperation(DirNamesTrain, NumTrainSamples, ImageSize,NumEpochs,MiniBatchSize,SaveCheckPoint,CheckPointPath,
     DivTrain,
     LatestFile,
-    BasePath,
     LogsPath,
-    ModelType,
+    ModelType, TrainSet, TestSet
 ):
     """
     Inputs:
@@ -134,12 +188,22 @@ def TrainOperation(
     Saves Trained network in CheckPointPath and Logs to LogsPath
     """
     # Predict output with forward pass
-    model = HomographyModel()
+    model = HomographyNet(InputSize=2*128*128, OutputSize=8).to(device)
+    print("Model Device:", next(model.parameters()).device)
+    # Parameters
+    print("\nModel Parameter Summary:")
+    total_params = 0
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            print(f"{name} - {param.data.shape}")
+            total_params += param.numel()
+    print(f"\nTotal trainable parameters: {total_params:,}\n")
 
     ###############################################
     # Fill your optimizer of choice here!
     ###############################################
-    Optimizer = ...
+    Optimizer = optim.SGD(model.parameters(), lr=0.005, momentum=0.9)
+    scheduler = torch.optim.lr_scheduler.StepLR(Optimizer, step_size=15, gamma=0.1)
 
     # Tensorboard
     # Create a summary to monitor loss tensor
@@ -154,21 +218,53 @@ def TrainOperation(
     else:
         StartEpoch = 0
         print("New model initialized....")
-
+    epoch_losses = []
+    epoch_accuracies = []
+    epoch_losses_test = []
+    all_Train_Prediction =[]
+    all_Train_Label =[]
+    all_Test_Prediction =[]
+    all_Test_Label =[]
+    Training_time = tic()
     for Epochs in tqdm(range(StartEpoch, NumEpochs)):
         NumIterationsPerEpoch = int(NumTrainSamples / MiniBatchSize / DivTrain)
+        total_loss = 0.0
+        total_accuracy = 0.0
+        #Train_Prediction = []
+        # training loop
+        model.train()
         for PerEpochCounter in tqdm(range(NumIterationsPerEpoch)):
-            I1Batch, CoordinatesBatch = GenerateBatch(
-                BasePath, DirNamesTrain, TrainCoordinates, ImageSize, MiniBatchSize
-            )
-
+            Batch = GenerateBatch(TrainSet, MiniBatchSize)
+            I1Batch, CoordinatesBatch = Batch
+            I1Batch = I1Batch.to(device)
+            CoordinatesBatch = CoordinatesBatch.to(device)
+            print("CoordinatesBatch", CoordinatesBatch)
+            #I1Batch = I1Batch.permute(0, 3, 1, 2).float()
+            print("I1Batch Shape: ", I1Batch.shape)
+            print("Input Data Device:", I1Batch.device)
+            #CoordinatesBatch = CoordinatesBatch.float()
             # Predict output with forward pass
             PredicatedCoordinatesBatch = model(I1Batch)
+            print("PredicatedCoordinatesBatch: ", PredicatedCoordinatesBatch)
             LossThisBatch = LossFn(PredicatedCoordinatesBatch, CoordinatesBatch)
+
+            # Prediction of labels
+            if Epochs == NumEpochs - 1:
+                Pred = model(I1Batch)
+                _, Predicted = torch.max(Pred.data, 1)
+
+                # Storing Predictions and true labels
+                all_Train_Prediction.extend(Predicted.cpu().numpy())
+                all_Train_Label.extend(CoordinatesBatch.cpu().numpy())
+
 
             Optimizer.zero_grad()
             LossThisBatch.backward()
             Optimizer.step()
+
+            # Accumulate the loss for this epoch
+            total_loss += LossThisBatch.item()
+            print(f"LossThisBatch {LossThisBatch}, NumIterationsPerEpoch {NumIterationsPerEpoch}")
 
             # Save checkpoint every some SaveCheckPoint's iterations
             if PerEpochCounter % SaveCheckPoint == 0:
@@ -193,16 +289,18 @@ def TrainOperation(
                 print("\n" + SaveName + " Model Saved...")
 
             result = model.validation_step(Batch)
+            total_accuracy += result["acc"]
             # Tensorboard
             Writer.add_scalar(
-                "LossEveryIter",
-                result["val_loss"],
+                "TrainingLoss", LossThisBatch.item(),
+                #result["val_loss"],
                 Epochs * NumIterationsPerEpoch + PerEpochCounter,
             )
             # If you don't flush the tensorboard doesn't update until a lot of iterations!
             Writer.flush()
 
         # Save model every epoch
+
         SaveName = CheckPointPath + str(Epochs) + "model.ckpt"
         torch.save(
             {
@@ -216,6 +314,86 @@ def TrainOperation(
         print("\n" + SaveName + " Model Saved...")
 
 
+        # Checking Testing Model Accuracy
+        # Evaluate test accuracy
+        test_loss = 0.0
+        Test_Label = []
+        Test_Prediction = []
+        model.eval()
+        with torch.no_grad(): # disable gradient
+            for PerEpochCounter in tqdm(range(NumIterationsPerEpoch)):
+                #Generate a batch
+                TestBatch = GenerateBatch(TestSet, MiniBatchSize)
+                I1Batch, CoordinatesBatch = TestBatch
+
+                #GPU
+                I1Batch = I1Batch.to(device)
+                CoordinatesBatch = CoordinatesBatch.to(device)
+                # Prediction of labels
+                if Epochs == NumEpochs - 1:
+                    Pred = model(I1Batch)
+                    _, Predicted = torch.max(Pred.data, 1)
+
+                    # Storing Predictions and true labels
+                    all_Test_Prediction.extend(Predicted.cpu().numpy())
+                    all_Test_Label.extend(CoordinatesBatch.cpu().numpy())
+
+                result = model.validation_step(TestBatch)
+                test_loss += result["loss"].item()
+
+
+        # calculating training loss
+        avg_loss = total_loss / NumIterationsPerEpoch
+        avg_test_loss = test_loss / NumIterationsPerEpoch
+        avg_accuracy = total_accuracy / NumIterationsPerEpoch
+        epoch_losses_test.append(avg_test_loss)
+        epoch_losses.append(avg_loss)
+        epoch_accuracies.append(avg_accuracy)
+        print(f"Epoch {Epochs + 1}, Average Loss: {avg_loss:.4f}, Average Accuracy: {avg_accuracy:.4f}")
+        print(f"Epoch {Epochs + 1}, Average Loss: {avg_test_loss:.4f}")
+        scheduler.step()
+
+    Training_Stop = toc(Training_time)
+    print("Training Complete and training time: ", Training_Stop- Training_time)
+
+    # Plot both testing and training loss
+    plt.plot(range(NumEpochs), epoch_losses, label='Training loss')
+    #plt.plot(range(NumEpochs), epoch_testing_losses, label='Test loss')
+    plt.xlabel('Epochs')
+    plt.ylabel('Losses')
+    plt.title('Training loss Over Epochs')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+    plt.plot(range(NumEpochs), epoch_losses_test, label='Testing loss')
+    # plt.plot(range(NumEpochs), epoch_testing_losses, label='Test loss')
+    plt.xlabel('Epochs')
+    plt.ylabel('Losses')
+    plt.title('Testing loss Over Epochs')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+    # Plot both testing and training loss
+    plt.plot(range(NumEpochs), epoch_losses, label='Training loss')
+    plt.plot(range(NumEpochs), epoch_losses_test, label='Test loss')
+    plt.xlabel('Epochs')
+    plt.ylabel('Losses')
+    plt.title('Training and Test loss Over Epochs')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+    plt.plot(range(NumEpochs), epoch_accuracies, label='Training accuracy')
+    plt.xlabel('Epochs')
+    plt.ylabel('Accuracies')
+    plt.title('Training Accuracy Over Epochs')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+
 def main():
     """
     Inputs:
@@ -227,12 +405,12 @@ def main():
     Parser = argparse.ArgumentParser()
     Parser.add_argument(
         "--BasePath",
-        default="/home/lening/workspace/rbe549/YourDirectoryID_p1/Phase2/Data",
+        default="D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Data/Train/TrainData",
         help="Base path of images, Default:/home/lening/workspace/rbe549/YourDirectoryID_p1/Phase2/Data",
     )
     Parser.add_argument(
         "--CheckPointPath",
-        default="../Checkpoints/",
+        default="D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Code/TxtFiles/Checkpointsfinal/",
         help="Path to save Checkpoints, Default: ../Checkpoints/",
     )
 
@@ -256,7 +434,7 @@ def main():
     Parser.add_argument(
         "--MiniBatchSize",
         type=int,
-        default=1,
+        default=64,
         help="Size of the MiniBatch to use, Default:1",
     )
     Parser.add_argument(
@@ -267,7 +445,7 @@ def main():
     )
     Parser.add_argument(
         "--LogsPath",
-        default="Logs/",
+        default="D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Code/TxtFiles/LogsFinalTrain/",
         help="Path to save Logs for Tensorboard, Default=Logs/",
     )
 
@@ -282,14 +460,21 @@ def main():
     ModelType = Args.ModelType
 
     # Setup all needed parameters including file reading
-    (
-        DirNamesTrain,
+    (DirNamesTrain,
         SaveCheckPoint,
         ImageSize,
         NumTrainSamples,
-        TrainCoordinates,
         NumClasses,
-    ) = SetupAll(BasePath, CheckPointPath)
+    ) = SetupAll(CheckPointPath)
+    # # Setup all needed parameters including file reading
+    # (
+    #     DirNamesTrain,
+    #     SaveCheckPoint,
+    #     ImageSize,
+    #     NumTrainSamples,
+    #     TrainCoordinates,
+    #     NumClasses,
+    # ) = SetupAll(CheckPointPath)
 
     # Find Latest Checkpoint File
     if LoadCheckPoint == 1:
@@ -297,12 +482,15 @@ def main():
     else:
         LatestFile = None
 
+    TrainSet = COCOCustom(root_dir=BasePath)
+    TestSet = COCOCustom(root_dir= "D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Data/Val/TestDatafinal")
+
+    #Train_dataloader = DataLoader(TrainSet, batch_size=64, shuffle=True)
     # Pretty print stats
     PrettyPrint(NumEpochs, DivTrain, MiniBatchSize, NumTrainSamples, LatestFile)
 
     TrainOperation(
         DirNamesTrain,
-        TrainCoordinates,
         NumTrainSamples,
         ImageSize,
         NumEpochs,
@@ -311,9 +499,8 @@ def main():
         CheckPointPath,
         DivTrain,
         LatestFile,
-        BasePath,
         LogsPath,
-        ModelType,
+        ModelType, TrainSet, TestSet
     )
 
 
