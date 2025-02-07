@@ -63,8 +63,8 @@ def main(path=None, im_set=None, model=None):
     def generate_patch(im_1, im_2,  patchsize = 128):
         im1 = cv2.cvtColor(im_1, cv2.COLOR_BGR2GRAY)
         im2 = cv2.cvtColor(im_2, cv2.COLOR_BGR2GRAY)
-        im1 = cv2.resize(im1, (320,240))
-        im2 = cv2.resize(im2, (320,240))
+        im1 = cv2.resize(im1, (320,240), interpolation=cv2.INTER_AREA)
+        im2 = cv2.resize(im2, (320,240), interpolation=cv2.INTER_AREA)
         x_offset = (320 - patchsize) // 2
         y_offset = (240 - patchsize) // 2
         patch1 = im1[y_offset:y_offset + patchsize, x_offset:x_offset + patchsize]
@@ -74,33 +74,64 @@ def main(path=None, im_set=None, model=None):
         patches = torch.from_numpy(patches).permute(2, 0, 1).unsqueeze(0).to(device)
         return patches
 
+    # def get_homography(im1, im2, model):
+    #     """
+    #     Get homography matrix from two images using the deep learning model
+    #     Args:
+    #         im1: First image
+    #         im2: Second image
+    #         model: Trained HomographyNet model
+    #     Returns:
+    #         H: 3x3 homography matrix as numpy array
+    #     """
+    #     # Generate patches and prepare input
+    #     input_patches = generate_patch(im1, im2)
+    #
+    #     # Ensure model is in evaluation mode
+    #     model.eval()
+    #
+    #     with torch.no_grad():
+    #         # Get 4-point prediction from model
+    #         h4_prediction = model(input_patches)
+    #
+    #         # Convert to homography matrix
+    #         H = homographymatrix(h4_prediction)
+    #
+    #         # Convert from torch tensor to numpy array and get first matrix (remove batch dimension)
+    #        # H = H[0].cpu().numpy()
+    #
+    #     return H
+
     def get_homography(im1, im2, model):
         """
-        Get homography matrix from two images using the deep learning model
-        Args:
-            im1: First image
-            im2: Second image
-            model: Trained HomographyNet model
-        Returns:
-            H: 3x3 homography matrix as numpy array
+        Get homography matrix with improved stability
         """
-        # Generate patches and prepare input
-        input_patches = generate_patch(im1, im2)
-
-        # Ensure model is in evaluation mode
         model.eval()
-
         with torch.no_grad():
-            # Get 4-point prediction from model
-            h4_prediction = model(input_patches)
+            # Generate patches
+            patches = generate_patch(im1, im2)
 
-            # Convert to homography matrix
-            H = homographymatrix(h4_prediction)
+            # Get network prediction
+            h4pt = model(patches)
 
-            # Convert from torch tensor to numpy array and get first matrix (remove batch dimension)
-           # H = H[0].cpu().numpy()
+            # Add stability check
+            deltas = h4pt.cpu().detach().numpy().reshape(-1) * 32
+            if np.max(np.abs(deltas)) > 128:  # If prediction is too large
+                print("Warning: Large homography prediction detected")
+                # Scale down extreme predictions
+                scale_factor = 128 / np.max(np.abs(deltas))
+                h4pt = h4pt * scale_factor
 
-        return H
+            # Get homography matrix
+            H = homographymatrix(h4pt)
+
+            # Check for reasonable scale in homography
+            scale_factors = np.sqrt(H[0, 0] ** 2 + H[0, 1] ** 2)
+            if scale_factors > 4 or scale_factors < 0.25:
+                print("Warning: Extreme scaling detected in homography")
+                H = H / scale_factors  # Normalize scaling
+
+            return H
 
     def homographymatrix(Hfourpoints):
         """
@@ -112,15 +143,17 @@ def main(path=None, im_set=None, model=None):
 
         # Define source points
         pts1 = [
-            [96.0, 56.0],  # top-left
-            [224.0, 56.0],  # top-right
-            [224.0, 184.0],  # bottom-right
-            [96.0, 184.0]  # bottom-left
+            [0.0, 0.0],  # top-left
+            [128.0, 0.0],  # top-right
+            [128.0, 128.0],  # bottom-right
+            [0.0, 128.0]  # bottom-left
         ]
+
         # target = Hfourpoints.view(-1, 8).float()
         # print("target", target)
         deltas = Hfourpoints.reshape(-1) *32  # Scale back by 32
         print("deltas",deltas)
+        #pts2 = pts1 + deltas.reshape(4, 2)
 
         # Calculate destination points
         pts2 = []
@@ -130,18 +163,20 @@ def main(path=None, im_set=None, model=None):
             pts2.append([x, y])
 
         # Construct the A matrix for DLT
-        A = []
+        A_matrix = np.zeros((8, 9))
         for i in range(4):
             x, y = pts1[i]
             xp, yp = pts2[i]
+            row1  = 2* i
+            row2 = row1 + 1
 
-            A.append([x, y, 1, 0, 0, 0, -xp * x, -xp * y, -xp])
-            A.append([0, 0, 0, x, y, 1, -yp*x, -yp*y, -yp])
+            A_matrix[row1] = ([x, y, 1, 0, 0, 0, -(xp * x), -(xp * y), -xp])
+            A_matrix[row2] = ([0, 0, 0, x, y, 1, -(yp*x), -(yp*y), -yp])
 
-        A = np.array(A)
+
 
         # Solve using SVD
-        _, _, V = np.linalg.svd(A)
+        _, _, V = np.linalg.svd(A_matrix)
 
         # Get the last row of V (corresponding to smallest singular value)
         h = V[-1]
@@ -150,23 +185,15 @@ def main(path=None, im_set=None, model=None):
         H = h.reshape(3, 3)
 
         # Normalize so that H[2,2] = 1
-        H = H / H[2, 2]
+        #H = H / H[2, 2]
+        H = (1 / H.item(8)) * H
 
         return H
 
     homography_set = {}
     cumulative_homographies = {0: (0, np.eye(3))}
-    # for i, im1 in enumerate(im_set):
-    #     for j,im2 in enumerate(im_set, start =1+1):
-    #         H = get_homography(im1, im2, model)
-    #         if i == 0:  # If we're at the first pair, just store the homography H
-    #             cumulative_homographies[j] = (0, H)
-    #         else:
-    #             # For subsequent pairs, multiply by the previous cumulative homography
-    #             H_cumulative = H @ cumulative_homographies[i][1]
-    #             cumulative_homographies[j] = (i, H_cumulative)
 
-    for i, im1 in enumerate(im_set):
+    for i, im1 in enumerate(im_set[:-1]):
         for j, im2 in enumerate(im_set[i + 1:], start=i + 1):
             H = get_homography(im1, im2, model)
             homography_set[(i, j)] = H
@@ -178,7 +205,6 @@ def main(path=None, im_set=None, model=None):
 
     warped_images = []
     warped_images = []
-    translation_offset = {}
     corners_list = []
 
     homography_idx = sorted(list(cumulative_homographies.keys()))
@@ -197,10 +223,11 @@ def main(path=None, im_set=None, model=None):
     max_x, max_y = np.ceil(all_corners.max(axis=0)).astype(int)
     canvas_width = max_x - min_x
     canvas_height = max_y - min_y
-    MAX_CANVAS_SIZE = 30000
+    MAX_CANVAS_SIZE = 8000
     canvas_width = min(canvas_width, MAX_CANVAS_SIZE)
     canvas_height = min(canvas_height, MAX_CANVAS_SIZE)
     f = 750
+
 
     for i in homography_idx:
         image = im_set[i]
@@ -208,25 +235,13 @@ def main(path=None, im_set=None, model=None):
         h, w = image.shape[:2]
         T = np.array([[1, 0, -min_x], [0, 1, -min_y], [0, 0, 1]])
         H_combined = T @ np.linalg.inv(H)
-        # H_combined = translation_matrix @ np.linalg.inv(H)
-        # Apply homography
-        # Limit canvas size
         warped = cv2.warpPerspective(image, H_combined, (canvas_width, canvas_height))
-        # create mask
         mask = cv2.threshold(warped, 0, 255, cv2.THRESH_BINARY)[1]
-        # # Create erosion kernel
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
         mask = cv2.morphologyEx(mask, cv2.MORPH_ERODE, kernel)  # Erode mask to remove border artifacts
         # # Zero out border pixels
         warped[mask == 0] = 0
         warped_images.append(warped)
-        # cv2.imwrite(f'outputs/{path}/warped_{from_index}_{i}.png', warped)
-        # Get maximum dimensions
-        # max_height, max_width = get_panorama_size(warped_images)
-        # # Resize all warped images to the same size
-        # warped_images = [cv2.resize(img, (max_width, max_height), interpolation=cv2.INTER_LINEAR)
-        #                 if img.shape[:2] != (max_height, max_width) else img
-        #                  for img in warped_images]
         cv2.imwrite(
             f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Code/outputs/{path}/warped_{from_index}_{i}.png',
             warped)
