@@ -82,18 +82,22 @@ class COCOCustom(torch.utils.data.Dataset):
             #X= X + (x,)
             X.append(x)
 
-            if istest is True:
-            # Get homography and normalize
-                y = torch.from_numpy(output['homography'].astype(np.float32) / 64.0)
-                y = y.float().to(device)
-                Y.append(y)
+            y = torch.from_numpy(output['homography'].astype(np.float32) / 32.0)
+            y = y.float().to(device)
+            Y.append(y)
 
-            else:
-
-                # Get homography and normalize
-                y = torch.from_numpy(output['homography'].astype(np.float32) / 32.0)
-                y = y.float().to(device)
-                Y.append(y)
+            # if istest is True:
+            # # Get homography and normalize
+            #     y = torch.from_numpy(output['homography'].astype(np.float32) / 64.0)
+            #     y = y.float().to(device)
+            #     Y.append(y)
+            #
+            # else:
+            #
+            #     # Get homography and normalize
+            #     y = torch.from_numpy(output['homography'].astype(np.float32) / 32.0)
+            #     y = y.float().to(device)
+            #     Y.append(y)
 
             # Y = Y + (y,)
 
@@ -118,47 +122,6 @@ class COCOCustom(torch.utils.data.Dataset):
 
         return x, y
 
-
-def GenerateBatch(TrainSet,  MiniBatchSize, istest = False):
-    """
-    Inputs:
-    BasePath - Path to COCO folder without "/" at the end
-    DirNamesTrain - Variable with Subfolder paths to train files
-    NOTE that Train can be replaced by Val/Test for generating batch corresponding to validation (held-out testing in this case)/testing
-    TrainCoordinates - Coordinatess corresponding to Train
-    NOTE that TrainCoordinates can be replaced by Val/TestCoordinatess for generating batch corresponding to validation (held-out testing in this case)/testing
-    ImageSize - Size of the Image
-    MiniBatchSize is the size of the MiniBatch
-    Outputs:
-    I1Batch - Batch of images
-    CoordinatesBatch - Batch of coordinates
-    """
-    I1Batch = []
-    CoordinatesBatch = []
-
-    ImageNum = 0
-    while ImageNum < MiniBatchSize:
-        # Generate random image
-        RandIdx = random.randint(0, len(TrainSet) - 1)
-
-        #RandImageName = BasePath + os.sep + DirNamesTrain[RandIdx] + ".jpg"
-
-
-        ##########################################################
-        # Add any standardization or data augmentation here!
-
-        ##########################################################
-        # I1 = np.float32(cv2.imread(RandImageName))
-        # Coordinates = TrainCoordinates[RandIdx]
-        I1 , Coordinates = TrainSet[RandIdx]
-
-        print("shapeI1", I1.shape)
-        # Append All Images and Mask
-        I1Batch.append(I1)
-        CoordinatesBatch.append(Coordinates)
-        ImageNum += 1
-
-    return torch.stack(I1Batch).to(device), torch.stack(CoordinatesBatch).to(device)
 
 # def GenerateBatch(TrainSet,  MiniBatchSize, istest = False):
 #     """
@@ -191,30 +154,7 @@ def GenerateBatch(TrainSet,  MiniBatchSize, istest = False):
 #         ##########################################################
 #         # I1 = np.float32(cv2.imread(RandImageName))
 #         # Coordinates = TrainCoordinates[RandIdx]
-#         I1, Coordinates = TrainSet[RandIdx]
-#         if not istest:
-#             if random.random() < 0.5:
-#                 noise = torch.randn_like(I1) * 0.02
-#                 I1 = I1 + noise
-#
-#             # Random brightness adjustment (works with any number of channels)
-#             if random.random() < 0.5:
-#                 brightness_factor = 1.0 + (random.random() - 0.5) * 0.2  # ±10% change
-#                 I1 = I1 * brightness_factor
-#
-#             # Random contrast adjustment (works with any number of channels)
-#             if random.random() < 0.5:
-#                 contrast_factor = 1.0 + (random.random() - 0.5) * 0.2  # ±10% change
-#                 mean = torch.mean(I1, dim=(1, 2), keepdim=True)
-#                 I1 = (I1 - mean) * contrast_factor + mean
-#
-#             # Gaussian blur (works with any number of channels)
-#             if random.random() < 0.3:
-#                 blur = transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0))
-#                 I1 = blur(I1)
-#
-#             # Ensure values stay in valid range
-#             I1 = torch.clamp(I1, -1, 1)
+#         I1 , Coordinates = TrainSet[RandIdx]
 #
 #         print("shapeI1", I1.shape)
 #         # Append All Images and Mask
@@ -223,6 +163,70 @@ def GenerateBatch(TrainSet,  MiniBatchSize, istest = False):
 #         ImageNum += 1
 #
 #     return torch.stack(I1Batch).to(device), torch.stack(CoordinatesBatch).to(device)
+
+def GenerateBatch(TrainSet,  MiniBatchSize, istest = False):
+    """
+    Inputs:
+    BasePath - Path to COCO folder without "/" at the end
+    DirNamesTrain - Variable with Subfolder paths to train files
+    NOTE that Train can be replaced by Val/Test for generating batch corresponding to validation (held-out testing in this case)/testing
+    TrainCoordinates - Coordinatess corresponding to Train
+    NOTE that TrainCoordinates can be replaced by Val/TestCoordinatess for generating batch corresponding to validation (held-out testing in this case)/testing
+    ImageSize - Size of the Image
+    MiniBatchSize is the size of the MiniBatch
+    Outputs:
+    I1Batch - Batch of images
+    CoordinatesBatch - Batch of coordinates
+    """
+    I1Batch = []
+    CoordinatesBatch = []
+
+    ImageNum = 0
+    while ImageNum < MiniBatchSize:
+        # Generate random image
+        RandIdx = random.randint(0, len(TrainSet) - 1)
+
+        #RandImageName = BasePath + os.sep + DirNamesTrain[RandIdx] + ".jpg"
+
+
+        ##########################################################
+        # Add any standardization or data augmentation here!
+
+        ##########################################################
+        # I1 = np.float32(cv2.imread(RandImageName))
+        # Coordinates = TrainCoordinates[RandIdx]
+        I1, Coordinates = TrainSet[RandIdx]
+        if not istest:
+            if random.random() < 0.5:
+                noise = torch.randn_like(I1) * 0.02
+                I1 = I1 + noise
+
+            # Random brightness adjustment (works with any number of channels)
+            if random.random() < 0.5:
+                brightness_factor = 1.0 + (random.random() - 0.5) * 0.2  # ±10% change
+                I1 = I1 * brightness_factor
+
+            # Random contrast adjustment (works with any number of channels)
+            if random.random() < 0.5:
+                contrast_factor = 1.0 + (random.random() - 0.5) * 0.2  # ±10% change
+                mean = torch.mean(I1, dim=(1, 2), keepdim=True)
+                I1 = (I1 - mean) * contrast_factor + mean
+
+            # Gaussian blur (works with any number of channels)
+            if random.random() < 0.3:
+                blur = transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0))
+                I1 = blur(I1)
+
+            # Ensure values stay in valid range
+            I1 = torch.clamp(I1, -1, 1)
+
+        print("shapeI1", I1.shape)
+        # Append All Images and Mask
+        I1Batch.append(I1)
+        CoordinatesBatch.append(Coordinates)
+        ImageNum += 1
+
+    return torch.stack(I1Batch).to(device), torch.stack(CoordinatesBatch).to(device)
 
 
 
@@ -295,6 +299,9 @@ def TrainOperation(DirNamesTrain, NumTrainSamples, ImageSize,NumEpochs,MiniBatch
         StartEpoch = 0
         print("New model initialized....")
     epoch_losses = []
+    epoch_epe_train =[]
+    epoch_epe_val =[]
+    forward_pass_times = []
     epoch_accuracies = []
     epoch_losses_test = []
     all_Train_Prediction =[]
@@ -306,6 +313,9 @@ def TrainOperation(DirNamesTrain, NumTrainSamples, ImageSize,NumEpochs,MiniBatch
         NumIterationsPerEpoch = int(NumTrainSamples / MiniBatchSize / DivTrain)
         total_loss = 0.0
         total_accuracy = 0.0
+        total_epe_train = 0.0
+        total_epe_val = 0.0
+        batch_count = 0
         #Train_Prediction = []
         # training loop
         model.train()
@@ -314,15 +324,35 @@ def TrainOperation(DirNamesTrain, NumTrainSamples, ImageSize,NumEpochs,MiniBatch
             I1Batch, CoordinatesBatch = Batch
             I1Batch = I1Batch.to(device)
             CoordinatesBatch = CoordinatesBatch.to(device)
-            print("CoordinatesBatch", CoordinatesBatch)
+            print("CoordinatesBatch", CoordinatesBatch.view(-1, 8))
             #I1Batch = I1Batch.permute(0, 3, 1, 2).float()
             print("I1Batch Shape: ", I1Batch.shape)
             print("Input Data Device:", I1Batch.device)
+            print("\nBatch Statistics:")
+            print("Input shape:", I1Batch.shape)
+            print("Coordinates shape:", CoordinatesBatch.shape)
+            print("Sample input range:", torch.min(I1Batch).item(), torch.max(I1Batch).item())
+            print("Sample coord range:", torch.min(CoordinatesBatch).item(), torch.max(CoordinatesBatch).item())
+
             #CoordinatesBatch = CoordinatesBatch.float()
             # Predict output with forward pass
+            start_time = time.time()
             PredicatedCoordinatesBatch = model(I1Batch)
+            forward_time = time.time() - start_time
+            forward_pass_times.append(forward_time)
             print("PredicatedCoordinatesBatch: ", PredicatedCoordinatesBatch)
             LossThisBatch = LossFn(PredicatedCoordinatesBatch, CoordinatesBatch)
+            # After prediction:
+            print("\nPrediction Statistics:")
+            print("Pred shape:", PredicatedCoordinatesBatch.shape)
+            print("Pred range:", torch.min(PredicatedCoordinatesBatch).item(),
+                  torch.max(PredicatedCoordinatesBatch).item())
+
+            #EPE Calculation
+            pred_denorm = PredicatedCoordinatesBatch * 32.0
+            gt_denorm = CoordinatesBatch * 32.0
+            epe_train = EPE(pred_denorm, gt_denorm)
+            total_epe_train += epe_train.item()
 
             # Prediction of labels
             if Epochs == NumEpochs - 1:
@@ -405,6 +435,12 @@ def TrainOperation(DirNamesTrain, NumTrainSamples, ImageSize,NumEpochs,MiniBatch
                 #GPU
                 I1Batch = I1Batch.to(device)
                 CoordinatesBatch = CoordinatesBatch.to(device)
+                Pred = model(I1Batch)
+                # Calculate EPE for validation batch
+                pred_denorm = Pred * 32.0
+                gt_denorm = CoordinatesBatch * 32.0
+                epe_val = EPE(pred_denorm, gt_denorm)
+                total_epe_val += epe_val.item()
                 # Prediction of labels
                 if Epochs == NumEpochs - 1:
                     Pred = model(I1Batch)
@@ -419,14 +455,22 @@ def TrainOperation(DirNamesTrain, NumTrainSamples, ImageSize,NumEpochs,MiniBatch
 
 
         # calculating training loss
+        avg_epe_train = total_epe_train / NumIterationsPerEpoch
+        avg_epe_val = total_epe_val / NumIterationsPerEpoch
         avg_loss = total_loss / NumIterationsPerEpoch
         avg_test_loss = test_loss / NumIterationsPerEpoch
         avg_accuracy = total_accuracy / NumIterationsPerEpoch
         epoch_losses_test.append(avg_test_loss)
         epoch_losses.append(avg_loss)
+        epoch_epe_train.append(avg_epe_train)
+        epoch_epe_val.append(avg_epe_val)
+        avg_forward_time = np.mean(forward_pass_times) * 1000  # Convert to ms
         epoch_accuracies.append(avg_accuracy)
         print(f"Epoch {Epochs + 1}, Average Loss: {avg_loss:.4f}, Average Accuracy: {avg_accuracy:.4f}")
         print(f"Epoch {Epochs + 1}, Average Loss: {avg_test_loss:.4f}")
+        print(f"Average Training EPE: {avg_epe_train:.4f} pixels")
+        print(f"Average Validation EPE: {avg_epe_val:.4f} pixels")
+        print(f"Average Forward Pass Time: {avg_forward_time:.2f} ms")
         scheduler.step()
 
     Training_Stop = toc(Training_time)
@@ -448,6 +492,35 @@ def TrainOperation(DirNamesTrain, NumTrainSamples, ImageSize,NumEpochs,MiniBatch
     #         plt.legend()
     # plt.tight_layout()
     # plt.show()
+
+    # Plot EPE curves
+    plt.plot(range(len(epoch_epe_train)), epoch_epe_train, label='Training EPE')
+    plt.plot(range(len(epoch_epe_val)), epoch_epe_val, label='Validation EPE')
+    plt.xlabel('Epochs')
+    plt.ylabel('EPE (pixels)')
+    plt.title('EPE Over Training and Validation Data')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(os.path.join(LogsPath, 'epe_curves.png'))
+    plt.close()
+
+    plt.plot(range(len(epoch_epe_train)), epoch_epe_train, label='Training EPE')
+    plt.xlabel('Epochs')
+    plt.ylabel('EPE (pixels)')
+    plt.title('EPE Over Training')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(os.path.join(LogsPath, 'epe_curves_train.png'))
+    plt.close()
+
+    plt.plot(range(len(epoch_epe_val)), epoch_epe_val, label='Validation EPE')
+    plt.xlabel('Epochs')
+    plt.ylabel('EPE (pixels)')
+    plt.title('EPE Over Validation')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(os.path.join(LogsPath, 'epe_curves_test.png'))
+    plt.close()
 
     # Plot both testing and training loss
     plt.plot(range(NumEpochs), epoch_losses, label='Training loss')
@@ -498,12 +571,12 @@ def main():
     Parser = argparse.ArgumentParser()
     Parser.add_argument(
         "--BasePath",
-        default="D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Data/Train/TrainData",
+        default="D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Data/Train/TrainTRANS",
         help="Base path of images, Default:/home/lening/workspace/rbe549/YourDirectoryID_p1/Phase2/Data",
     )
     Parser.add_argument(
         "--CheckPointPath",
-        default="D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Code/TxtFiles/Checkpointstrial/",
+        default="D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Code/TxtFiles/CheckpointsTRANS/",
         help="Path to save Checkpoints, Default: ../Checkpoints/",
     )
 
@@ -515,7 +588,7 @@ def main():
     Parser.add_argument(
         "--NumEpochs",
         type=int,
-        default=50,
+        default=100,
         help="Number of Epochs to Train for, Default:50",
     )
     Parser.add_argument(
@@ -538,7 +611,7 @@ def main():
     )
     Parser.add_argument(
         "--LogsPath",
-        default="D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Code/TxtFiles/LogsFinalTraintrial/",
+        default="D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Code/TxtFiles/LogsTRANS/",
         help="Path to save Logs for Tensorboard, Default=Logs/",
     )
 
@@ -576,7 +649,7 @@ def main():
         LatestFile = None
 
     TrainSet = COCOCustom(root_dir=BasePath)
-    TestSet = COCOCustom(root_dir= "D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Data/Val/TestDatafinal", istest = True)
+    TestSet = COCOCustom(root_dir= "D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Data/Val/TESTTRANS", istest = True)
 
     #Train_dataloader = DataLoader(TrainSet, batch_size=64, shuffle=True)
     # Pretty print stats
