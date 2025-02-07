@@ -16,7 +16,7 @@ def patch_pairs_generation(image, path):
     im = cv2.resize(im, (320, 240))
     patch_size = 128
     h, w = im.shape
-    rho = 32
+    rho = 16
     # top_left_corner = (32,32) #top_point
     # top_right_corner = (patch_size + 32, 32) #left_point
     # bottom_right_corner = (patch_size + 32, patch_size + 32) #bottom_point
@@ -37,11 +37,33 @@ def patch_pairs_generation(image, path):
 
 
     C_A = [top_left_corner, top_right_corner, bottom_right_corner, bottom_left_corner]
+    print("\nOriginal Corner Points (C_A):")
+    print(f"Top Left: {top_left_corner}")
+    print(f"Top Right: {top_right_corner}")
+    print(f"Bottom Right: {bottom_right_corner}")
+    print(f"Bottom Left: {bottom_left_corner}")
     C_B =[]
     for corners in C_A:
-        C_B.append((corners[0]+ random.randint(-rho, rho) +dx  , corners[1]+ random.randint(-rho, rho) + dx  ))
-    H_AB = cv2.getPerspectiveTransform(np.float32(C_B), np.float32(C_A))
+        perturbed = (corners[0]+ random.randint(-rho, rho) + dx  , corners[1]+ random.randint(-rho, rho) + dx )
+        C_B.append(perturbed)
+        print(f"Point {corners}: {perturbed}")
+    print("\nPerturbed Points (C_B):", C_B)
+    H_AB = cv2.getPerspectiveTransform(np.float32(C_A), np.float32(C_B))
+    print("\nHomography Matrix H_AB:", H_AB)
     H_AB_inv = inv(H_AB)
+    print("\nInverse Homography Matrix H_AB_inv:", H_AB_inv)
+    # Save debugging visualizations
+    debug_img = cv2.cvtColor(im.copy(), cv2.COLOR_GRAY2BGR)
+
+    # Draw original points in blue
+    for pt in C_A:
+        cv2.circle(debug_img, (int(pt[0]), int(pt[1])), 3, (255, 0, 0), -1)
+
+    # Draw perturbed points in red
+    for pt in C_B:
+        cv2.circle(debug_img, (int(pt[0]), int(pt[1])), 3, (0, 0, 255), -1)
+
+    cv2.imwrite('debug_points.png', debug_img)
     warped_image = cv2.warpPerspective(im, H_AB_inv, (320, 240))
     Ip1 = test_image[top_left_corner[1]:bottom_left_corner[1],
           top_left_corner[0]:top_right_corner[0]]
@@ -56,24 +78,10 @@ def patch_pairs_generation(image, path):
     train_image = train_image.astype(np.float32)
     H_four_points =  np.subtract(np.array(C_B), np.array(C_A))
     H_four_points = H_four_points.astype(np.float32)
+    print("\nH_four_points (C_B - C_A):")
+    print(H_four_points)
     return train_image, H_four_points
 
-
-# def savedata(path ,dir):
-#     lst = os.listdir(path + '/')
-#     save_dir = path + '/' + 'synthetic_data/'
-#     if not os.path.exists(save_dir):
-#         os.makedirs(save_dir)
-#     train_coordinate =[]
-#     with open(save_txt, 'w') as f:
-#         for i, img in enumerate(lst):
-#             if img != 'synthetic_data':  # Skip the output directory
-#                 patch_pairs, homography = patch_pairs_generation(img, path)
-#                 data = {'img': patch_pairs, 'homography': homography}
-#                 train_coordinate.append(homography.tolist())
-#                 f.write(str(train_coordinate) + '\n')
-#                 # Save with allow_pickle=True
-#                 np.save(save_dir + f'img{i+1}', data, allow_pickle=True)
 
 def savedata(path, dir):
     # Verify directories exist
@@ -81,8 +89,8 @@ def savedata(path, dir):
         raise FileNotFoundError(f"Training path not found: {path}")
 
     lst = os.listdir(path)
-    save_dir = os.path.join("D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Data/Train", 'TrainData')
-    save_txt = os.path.join(dir, 'TrainDataHomography.txt')
+    save_dir = os.path.join("D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Data/Test", 'TESTTRANS')
+    save_txt = os.path.join(dir, 'Te.txt')
     #save_txt = os.path.join(dir, 'test_homography_trans.txt')
 
     if not os.path.exists(save_dir):
@@ -106,5 +114,5 @@ def savedata(path, dir):
                     continue
 
 
-savedata(train_path, dir)
-#savedata(test_path, dir)
+#savedata(train_path, dir)
+savedata(test_path, dir)
