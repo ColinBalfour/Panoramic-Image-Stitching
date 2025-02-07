@@ -4,9 +4,15 @@ import random
 import numpy as np
 from numpy.linalg import inv
 import os
-train_path  = 'D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Data/Train/Train'
-test_path  = "D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Data/Val/Val"
-dir = "D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Code/TxtFiles"
+
+# train_path  = 'D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Data/Train/Train'
+# test_path  = "D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Data/Val/Val"
+# dir = "D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Code/TxtFiles"
+
+train_path  = 'Phase2/Data/Train'
+test_path  = "Phase2/Data/Val"
+dir = "Phase2/Code/TxtFiles"
+
 def patch_pairs_generation(image, path):
     #full_path  = os.path.join(path, image)
     #print(full_path)
@@ -89,7 +95,9 @@ def savedata(path, dir):
         raise FileNotFoundError(f"Training path not found: {path}")
 
     lst = os.listdir(path)
-    save_dir = os.path.join("D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Data/Test", 'TESTTRANS')
+    # pth = "D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Data/Test"
+    pth = "Phase2/Data/Test"
+    save_dir = os.path.join(pth, 'TESTTRANS')
     save_txt = os.path.join(dir, 'Te.txt')
     #save_txt = os.path.join(dir, 'test_homography_trans.txt')
 

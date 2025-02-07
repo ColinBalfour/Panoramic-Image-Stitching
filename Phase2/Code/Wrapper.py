@@ -29,7 +29,7 @@ from scipy.sparse import csr_matrix
 import os
 from Misc.MiscUtils import *
 from Misc.DataUtils import *
-from Network.Network import *
+from Network import *
 
 
 # # Check GPU availability
@@ -51,8 +51,8 @@ def main(path=None, im_set=None, model=None):
     # new_height = 450
 
     if im_set is None:
-        DIR_PATH = f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Data/Train/'
-        #DIR_PATH = f'Phase1/Data/Train/'
+        # DIR_PATH = f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Data/Train/'
+        DIR_PATH = f'Phase1/Data/Train/'
         im_set = [cv2.imread(f'{DIR_PATH}/{path}/{i + 1}.jpg') for i in
                   range(len(os.listdir(f'{DIR_PATH}/{path}')))]
 

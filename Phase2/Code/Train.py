@@ -23,7 +23,7 @@ import torchvision
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import datasets, transforms
 from torch.optim import AdamW
-from Network.Network import HomographyNet
+from Network import HomographyNet
 from torch.utils.data import DataLoader
 import cv2
 import sys
@@ -41,7 +41,7 @@ import numpy as np
 import time
 from Misc.MiscUtils import *
 from Misc.DataUtils import *
-from Network.Network import *
+from Network import *
 #from Network.Network import HomographyNet, LossFn
 from torchvision.transforms import ToTensor
 import argparse
@@ -115,7 +115,7 @@ class COCOCustom(torch.utils.data.Dataset):
     def __getitem__(self, index):
         """Get a single data pair"""
         x = self.X_data[index]
-        print("xshape2", x.shape)
+        # print("xshape2", x.shape)
         y = self.Y_data[index]
         if self.transform:
             x = self.transform(x)
@@ -163,6 +163,28 @@ class COCOCustom(torch.utils.data.Dataset):
 #         ImageNum += 1
 #
 #     return torch.stack(I1Batch).to(device), torch.stack(CoordinatesBatch).to(device)
+
+def TensorDLT(H4pt, C_A):
+    # print(C_A)
+    H = torch.tensor([]).to(device)
+    for h4pt, c_a in zip(H4pt, C_A):
+        A = []
+        c_b = c_a + h4pt
+
+        for i in range(0, 8, 2):
+            x1, y1 = c_a[i], c_a[i+1]
+            x2, y2 = c_b[i], c_b[i+1]
+
+            A.append([x1, y1, 1, 0, 0, 0, -x2*x1, -x2*y1, -x2])
+            A.append([0, 0, 0, x1, y1, 1, -y2*x1, -y2*y1, -y2])
+
+        A = torch.tensor(A).to(device)
+        _, _, V = torch.linalg.svd(A)
+        h = V[-1]/V[-1][8]
+
+        H = torch.cat((H, torch.unsqueeze(h.reshape(3, -1), dim=0)), axis=0)
+
+    return H
 
 def GenerateBatch(TrainSet,  MiniBatchSize, istest = False):
     """
@@ -220,7 +242,7 @@ def GenerateBatch(TrainSet,  MiniBatchSize, istest = False):
             # Ensure values stay in valid range
             I1 = torch.clamp(I1, -1, 1)
 
-        print("shapeI1", I1.shape)
+        # print("shapeI1", I1.shape)
         # Append All Images and Mask
         I1Batch.append(I1)
         CoordinatesBatch.append(Coordinates)
@@ -275,7 +297,7 @@ def TrainOperation(DirNamesTrain, NumTrainSamples, ImageSize,NumEpochs,MiniBatch
     total_params = 0
     for name, param in model.named_parameters():
         if param.requires_grad:
-            print(f"{name} - {param.data.shape}")
+            # print(f"{name} - {param.data.shape}")
             total_params += param.numel()
     print(f"\nTotal trainable parameters: {total_params:,}\n")
 
@@ -290,6 +312,7 @@ def TrainOperation(DirNamesTrain, NumTrainSamples, ImageSize,NumEpochs,MiniBatch
     Writer = SummaryWriter(LogsPath)
 
     if LatestFile is not None:
+        print(CheckPointPath + LatestFile + ".ckpt")
         CheckPoint = torch.load(CheckPointPath + LatestFile + ".ckpt")
         # Extract only numbers from the name
         StartEpoch = int("".join(c for c in LatestFile.split("a")[0] if c.isdigit()))
@@ -324,15 +347,15 @@ def TrainOperation(DirNamesTrain, NumTrainSamples, ImageSize,NumEpochs,MiniBatch
             I1Batch, CoordinatesBatch = Batch
             I1Batch = I1Batch.to(device)
             CoordinatesBatch = CoordinatesBatch.to(device)
-            print("CoordinatesBatch", CoordinatesBatch.view(-1, 8))
+            # print("CoordinatesBatch", CoordinatesBatch.view(-1, 8))
             #I1Batch = I1Batch.permute(0, 3, 1, 2).float()
-            print("I1Batch Shape: ", I1Batch.shape)
-            print("Input Data Device:", I1Batch.device)
-            print("\nBatch Statistics:")
-            print("Input shape:", I1Batch.shape)
-            print("Coordinates shape:", CoordinatesBatch.shape)
-            print("Sample input range:", torch.min(I1Batch).item(), torch.max(I1Batch).item())
-            print("Sample coord range:", torch.min(CoordinatesBatch).item(), torch.max(CoordinatesBatch).item())
+            # print("I1Batch Shape: ", I1Batch.shape)
+            # print("Input Data Device:", I1Batch.device)
+            # print("\nBatch Statistics:")
+            # print("Input shape:", I1Batch.shape)
+            # print("Coordinates shape:", CoordinatesBatch.shape)
+            # print("Sample input range:", torch.min(I1Batch).item(), torch.max(I1Batch).item())
+            # print("Sample coord range:", torch.min(CoordinatesBatch).item(), torch.max(CoordinatesBatch).item())
 
             #CoordinatesBatch = CoordinatesBatch.float()
             # Predict output with forward pass
@@ -340,13 +363,23 @@ def TrainOperation(DirNamesTrain, NumTrainSamples, ImageSize,NumEpochs,MiniBatch
             PredicatedCoordinatesBatch = model(I1Batch)
             forward_time = time.time() - start_time
             forward_pass_times.append(forward_time)
-            print("PredicatedCoordinatesBatch: ", PredicatedCoordinatesBatch)
-            LossThisBatch = LossFn(PredicatedCoordinatesBatch, CoordinatesBatch)
+            # print("PredicatedCoordinatesBatch: ", PredicatedCoordinatesBatch)
+            
+            ## SUPERVISED
+            # LossThisBatch = LossFn(PredicatedCoordinatesBatch, CoordinatesBatch)
+            
+            ## UNSUPERVISED
+            C_A = torch.tensor([0, 0, 128, 0, 128, 128, 0, 128]).to(device)
+            # repeat CA to match batch size
+            C_A = C_A.repeat(I1Batch.shape[0], 1)
+            LossThisBatch = photometric_loss(I1Batch, TensorDLT(PredicatedCoordinatesBatch, C_A))
+            
+            
             # After prediction:
-            print("\nPrediction Statistics:")
-            print("Pred shape:", PredicatedCoordinatesBatch.shape)
-            print("Pred range:", torch.min(PredicatedCoordinatesBatch).item(),
-                  torch.max(PredicatedCoordinatesBatch).item())
+            # print("\nPrediction Statistics:")
+            # print("Pred shape:", PredicatedCoordinatesBatch.shape)
+            # print("Pred range:", torch.min(PredicatedCoordinatesBatch).item(),
+                #   torch.max(PredicatedCoordinatesBatch).item())
 
             #EPE Calculation
             pred_denorm = PredicatedCoordinatesBatch * 32.0
@@ -370,7 +403,7 @@ def TrainOperation(DirNamesTrain, NumTrainSamples, ImageSize,NumEpochs,MiniBatch
 
             # Accumulate the loss for this epoch
             total_loss += LossThisBatch.item()
-            print(f"LossThisBatch {LossThisBatch}, NumIterationsPerEpoch {NumIterationsPerEpoch}")
+            # print(f"LossThisBatch {LossThisBatch}, NumIterationsPerEpoch {NumIterationsPerEpoch}")
 
             # Save checkpoint every some SaveCheckPoint's iterations
             if PerEpochCounter % SaveCheckPoint == 0:
@@ -383,15 +416,15 @@ def TrainOperation(DirNamesTrain, NumTrainSamples, ImageSize,NumEpochs,MiniBatch
                     + "model.ckpt"
                 )
 
-                torch.save(
-                    {
-                        "epoch": Epochs,
-                        "model_state_dict": model.state_dict(),
-                        "optimizer_state_dict": Optimizer.state_dict(),
-                        "loss": LossThisBatch,
-                    },
-                    SaveName,
-                )
+                # torch.save(
+                #     {
+                #         "epoch": Epochs,
+                #         "model_state_dict": model.state_dict(),
+                #         "optimizer_state_dict": Optimizer.state_dict(),
+                #         "loss": LossThisBatch,
+                #     },
+                #     SaveName,
+                # )
                 print("\n" + SaveName + " Model Saved...")
 
             result = model.validation_step(Batch)
@@ -606,7 +639,7 @@ def main():
     Parser.add_argument(
         "--LoadCheckPoint",
         type=int,
-        default=0,
+        default=1,
         help="Load Model from latest Checkpoint from CheckPointsPath?, Default:0",
     )
     Parser.add_argument(
@@ -617,13 +650,18 @@ def main():
 
     Args = Parser.parse_args()
     NumEpochs = Args.NumEpochs
-    BasePath = Args.BasePath
     DivTrain = float(Args.DivTrain)
     MiniBatchSize = Args.MiniBatchSize
-    LoadCheckPoint = Args.LoadCheckPoint
-    CheckPointPath = Args.CheckPointPath
-    LogsPath = Args.LogsPath
     ModelType = Args.ModelType
+    LoadCheckPoint = Args.LoadCheckPoint
+    
+    # BasePath = Args.BasePath
+    # CheckPointPath = Args.CheckPointPath
+    # LogsPath = Args.LogsPath
+    
+    BasePath = "Phase2/Data/Train/TrainTRANS"
+    CheckPointPath = "Phase2/Code/TxtFiles/CheckpointsTRANS/"
+    LogsPath = "Phase2/Code/TxtFiles/LogsTRANS/"
 
     # Setup all needed parameters including file reading
     (DirNamesTrain,
@@ -649,7 +687,10 @@ def main():
         LatestFile = None
 
     TrainSet = COCOCustom(root_dir=BasePath)
-    TestSet = COCOCustom(root_dir= "D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Data/Val/TESTTRANS", istest = True)
+    
+    # TestPath = "D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Data/Val/TESTTRANS"
+    TestPath = "Phase2/Data/Test/TESTTRANS"
+    TestSet = COCOCustom(root_dir= TestPath, istest = True)
 
     #Train_dataloader = DataLoader(TrainSet, batch_size=64, shuffle=True)
     # Pretty print stats

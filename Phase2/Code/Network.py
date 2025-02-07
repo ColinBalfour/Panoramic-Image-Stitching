@@ -16,7 +16,7 @@ import torch
 import numpy as np
 import torch.nn.functional as F
 import pytorch_lightning as pl
-#import kornia  # You can use this to get the transform and warp in this project
+import kornia  # You can use this to get the transform and warp in this project
 
 # Don't generate pyc codes
 sys.dont_write_bytecode = True
@@ -56,10 +56,35 @@ def LossFn(out, target):
     # You can use kornia to get the transform and warp in this project
     # Bonus if you implement it yourself
     ###############################################
+    
     # loss = torch.norm(out - target, p=2, dim=1)
     criterion = nn.MSELoss()
     loss = criterion(out, target.view(-1, 8))
     return loss
+
+
+def H_inv(H, w, h):
+    
+    M = torch.tensor([
+        [w/2, 0, w/2], 
+        [0, h/2, h/2], 
+        [0, 0, 1]
+    ], dtype=torch.float, device=H.device, requires_grad=True)
+    
+    return torch.inverse(M).matmul(torch.inverse(H)).matmul(M)
+
+def photometric_loss(stacked_patches, H):
+    # print(stacked_patches.shape)
+    P_A, P_B = torch.split(stacked_patches, 1, dim=1)
+    
+    # [[[1, 2],[3, 4]], [[2, 3],[4, 5]]]
+    
+    h_inv = H_inv(H, P_A.shape[3], P_A.shape[2])
+    
+    warped = kornia.geometry.warp_perspective(P_A, h_inv, dsize=(P_A.shape[3], P_A.shape[2]))
+    loss = torch.mean(torch.abs(P_B - warped))
+    return loss
+    
 
 
 
@@ -163,41 +188,42 @@ class HomographyNet(HomographyBase):
         # size for your Spatial transformer network layer!
         #############################
         # Spatial transformer localization-network
-        # self.localization = nn.Sequential(
-        #     nn.Conv2d(1, 8, kernel_size=7),
-        #     nn.MaxPool2d(2, stride=2),
-        #     nn.ReLU(True),
-        #     nn.Conv2d(8, 10, kernel_size=5),
-        #     nn.MaxPool2d(2, stride=2),
-        #     nn.ReLU(True),
-        # )
-        #
-        # # Regressor for the 3 * 2 affine matrix
-        # self.fc_loc = nn.Sequential(
-        #     nn.Linear(10 * 3 * 3, 32), nn.ReLU(True), nn.Linear(32, 3 * 2)
-        # )
-        #
-        # # Initialize the weights/bias with identity transformation
-        # self.fc_loc[2].weight.data.zero_()
-        # self.fc_loc[2].bias.data.copy_(
-        #     torch.tensor([1, 0, 0, 0, 1, 0], dtype=torch.float)
-        #)
+        self.localization = nn.Sequential(
+            nn.Conv2d(1, 8, kernel_size=7),
+            nn.MaxPool2d(2, stride=2),
+            nn.ReLU(True),
+            nn.Conv2d(8, 10, kernel_size=5),
+            nn.MaxPool2d(2, stride=2),
+            nn.ReLU(True),
+        )
+        
+        # Regressor for the 3 * 2 affine matrix
+        self.fc_loc = nn.Sequential(
+            nn.Linear(10 * 3 * 3, 32), nn.ReLU(True), nn.Linear(32, 3 * 2)
+        )
+        
+        # Initialize the weights/bias with identity transformation
+        self.fc_loc[2].weight.data.zero_()
+        self.fc_loc[2].bias.data.copy_(
+            torch.tensor([1, 0, 0, 0, 1, 0], dtype=torch.float)
+        )
+    
 
     #############################
     # You will need to change the input size and output
     # size for your Spatial transformer network layer!
     #############################
-    # def stn(self, x):
-    #     "Spatial transformer network forward function"
-    #     xs = self.localization(x)
-    #     xs = xs.view(-1, 10 * 3 * 3)
-    #     theta = self.fc_loc(xs)
-    #     theta = theta.view(-1, 2, 3)
-    #
-    #     grid = F.affine_grid(theta, x.size())
-    #     x = F.grid_sample(x, grid)
-    #
-    #     return x
+    def stn(self, x):
+        "Spatial transformer network forward function"
+        xs = self.localization(x)
+        xs = xs.view(-1, 10 * 3 * 3)
+        theta = self.fc_loc(xs)
+        theta = theta.view(-1, 2, 3)
+    
+        grid = F.affine_grid(theta, x.size())
+        x = F.grid_sample(x, grid)
+    
+        return x
 
     #def forward(self, xa, xb):
     def forward(self, x):
@@ -221,6 +247,8 @@ class HomographyNet(HomographyBase):
         #out = out.view(128 * 16 * 16, -1)
         out = self.fc1(out)
         out = self.fc2(out)
+        
+        
         # Fill your network structure of choice here!
         #############################
         return out
