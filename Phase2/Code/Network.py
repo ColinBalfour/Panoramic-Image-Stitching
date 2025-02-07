@@ -34,6 +34,19 @@ def accuracy(out, target, threshold =0.1):
 
     return accuracy
 
+
+def EPE(predicted_points, ground_truth_points):
+    """Calculate EPE between predicted and ground truth points"""
+    # Reshape to (batch_size, 4, 2) for point-wise comparison
+    pred_points = predicted_points.reshape(-1, 4, 2)
+    gt_points = ground_truth_points.reshape(-1, 4, 2)
+
+    # Calculate L2 distance for each point
+    point_distances = torch.sqrt(torch.sum((pred_points - gt_points) ** 2, dim=2))
+
+    # Average over points and batch
+    return torch.mean(point_distances)
+
 def LossFn(out, target):
     ###############################################
     # Fill your loss function of choice here!
@@ -211,3 +224,4 @@ class HomographyNet(HomographyBase):
         # Fill your network structure of choice here!
         #############################
         return out
+
