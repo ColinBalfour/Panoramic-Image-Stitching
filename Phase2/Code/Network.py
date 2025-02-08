@@ -79,9 +79,11 @@ def photometric_loss(stacked_patches, H):
     
     # [[[1, 2],[3, 4]], [[2, 3],[4, 5]]]
     
+    # H.requires_grad = True
+    
     h_inv = H_inv(H, P_A.shape[3], P_A.shape[2])
     
-    warped = kornia.geometry.warp_perspective(P_A, h_inv, dsize=(P_A.shape[3], P_A.shape[2]))
+    warped = kornia.geometry.warp_perspective(P_A, H, dsize=(P_A.shape[3], P_A.shape[2]))
     loss = torch.mean(torch.abs(P_B - warped))
     return loss
     
@@ -179,7 +181,7 @@ class HomographyNet(HomographyBase):
                                     nn.ReLU())
         self.layer8 = nn.Sequential(nn.Conv2d(128, 128, 3, padding=1),
                                     nn.BatchNorm2d(128),
-                                    nn.ReLU())#, nn.Dropout(p=0.5))
+                                    nn.ReLU(), nn.Dropout(p=0.5))
         self.fc1 = nn.Linear(128 * 16 * 16, 1024)
         self.fc2 = nn.Linear(1024, 8)
 

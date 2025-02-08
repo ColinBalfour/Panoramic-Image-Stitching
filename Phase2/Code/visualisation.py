@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
-from Network.Network import HomographyNet
+from Network import HomographyNet
 import random
 import os
 from datetime import datetime
@@ -257,8 +257,12 @@ def visualize_homography_comparison(test_dir, model_path, output_dir, num_images
 
 # Example usage
 if __name__ == "__main__":
-    test_dir = "D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Data/Val/Val"
-    model_path = "D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Code/TxtFiles/CheckpointsTrainwithouttransfinal/49model.ckpt"
-    output_dir = "D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Results/HomographyComparison"
+    # test_dir = "D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Data/Val/Val"
+    # model_path = "D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Code/TxtFiles/CheckpointsTrainwithouttransfinal/49model.ckpt"
+    # output_dir = "D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Results/HomographyComparison"
+    
+    test_dir = "Phase2/Data/Val"
+    model_path = "Phase2/Code/TxtFiles/CheckpointsTRANS/99model.ckpt"
+    output_dir = "Phase2/Results/HomographyComparison"
 
     results_dir = visualize_homography_comparison(test_dir, model_path, output_dir)

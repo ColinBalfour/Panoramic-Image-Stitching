@@ -243,7 +243,8 @@ def main(path=None, im_set=None, model=None):
         warped[mask == 0] = 0
         warped_images.append(warped)
         cv2.imwrite(
-            f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Code/outputs/{path}/warped_{from_index}_{i}.png',
+            # f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Code/outputs/{path}/warped_{from_index}_{i}.png',
+            f'Phase1/Code/outputs/{path}/warped_{from_index}_{i}.png',
             warped)
 
     def get_panorama_size(warped_images):
@@ -353,7 +354,8 @@ def main(path=None, im_set=None, model=None):
     final_result = blend_image_sequence(warped_images)
     # cv2.imwrite('final_blended_result.jpg', final_result)
 
-    cv2.imwrite(f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Code/outputs/{path}/mypano.png', final_result)
+    # cv2.imwrite(f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Code/outputs/{path}/mypano.png', final_result)
+    cv2.imwrite(f'Phase1/Code/outputs/{path}/mypano.png', final_result)
 
     # cv2.imwrite(f'outputs/{path}/mypano.png', panorama)
 
@@ -363,11 +365,13 @@ def main(path=None, im_set=None, model=None):
 if __name__ == "__main__":
     PAIRWISE = False
     path = "Set1"
-    DIR_PATH = f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Data/Train/'
+    # DIR_PATH = f'D:/Computer vision/Homeworks/Project Phase1/YourDirectoryID_p1/YourDirectoryID_p1/Phase1/Data/Train/'
+    DIR_PATH = f'Phase1/Data/Train/'
 
     # Load model first
     model = HomographyNet(InputSize=2 * 128 * 128, OutputSize=8).to(device)
-    checkpoint = torch.load('D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Code/TxtFiles/Checkpointsfinal/49model.ckpt')
+    # checkpoint = torch.load('D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Code/TxtFiles/Checkpointsfinal/49model.ckpt')
+    checkpoint = torch.load('Phase2/Code/TxtFiles/CheckpointsTRANS/98model.ckpt')
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
 

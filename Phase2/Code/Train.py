@@ -369,10 +369,17 @@ def TrainOperation(DirNamesTrain, NumTrainSamples, ImageSize,NumEpochs,MiniBatch
             # LossThisBatch = LossFn(PredicatedCoordinatesBatch, CoordinatesBatch)
             
             ## UNSUPERVISED
-            C_A = torch.tensor([0, 0, 128, 0, 128, 128, 0, 128]).to(device)
+            # C_A = torch.tensor([0, 0, 128, 0, 128, 128, 0, 128], dtype=torch.float32).to(device)
+            # C_A =  C_A.view(4, 2)
+            
+            C_A = torch.tensor([[96, 56], [224, 56], [224, 184], [96, 184]], dtype=torch.float32).to(device)
+            
             # repeat CA to match batch size
-            C_A = C_A.repeat(I1Batch.shape[0], 1)
-            LossThisBatch = photometric_loss(I1Batch, TensorDLT(PredicatedCoordinatesBatch, C_A))
+            C_A = C_A.unsqueeze(0).repeat(I1Batch.shape[0], 1, 1)
+            
+            H = kornia.geometry.get_perspective_transform(C_A, C_A + PredicatedCoordinatesBatch.view(I1Batch.shape[0], 4, 2))
+            # H = TensorDLT(PredicatedCoordinatesBatch, C_A)
+            LossThisBatch = photometric_loss(I1Batch, H)
             
             
             # After prediction:
@@ -639,7 +646,7 @@ def main():
     Parser.add_argument(
         "--LoadCheckPoint",
         type=int,
-        default=1,
+        default=0,
         help="Load Model from latest Checkpoint from CheckPointsPath?, Default:0",
     )
     Parser.add_argument(
