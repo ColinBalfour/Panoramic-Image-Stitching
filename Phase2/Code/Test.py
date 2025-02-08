@@ -21,64 +21,131 @@ import os
 import sys
 import glob
 import random
-from skimage import data, exposure, img_as_float
+#from skimage import data, exposure, img_as_float
 import matplotlib.pyplot as plt
 import numpy as np
 import time
 from torchvision.transforms import ToTensor
 import argparse
-from Network.Network import HomographyModel
+#from Network.Network import HomographyModel
 import shutil
 import string
 import math as m
 from sklearn.metrics import confusion_matrix
 from tqdm import tqdm
 import torch
+from Misc.MiscUtils import *
+from Misc.DataUtils import *
+from Network.Network import *
 
 
 # Don't generate pyc codes
 sys.dont_write_bytecode = True
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+class COCOCustom(torch.utils.data.Dataset):
+    def __init__(self, root_dir, transform = None ): #, labels_path, transform=None, dataset_type="train"):
+        """
+        Args:
+            root_dir: Directory with all images (1 to 50000)
+            labels_path: Path to LabelsTrain.txt
+            transform: Optional transform to be applied
+        """
+        self.root_dir = root_dir
+        self.transform = transform
+        # X = ()
+        # Y = ()
+        X =[]
+        Y =[]
+        # Get list of all .npy files
+        self.data = sorted([f for f in os.listdir(root_dir) if f.endswith('.npy')])
+        i = 0
+        train_coordinates = []
 
+        # Load each file
+        for im in self.data:
+            file_path= os.path.join(self.root_dir, im)
+            output = np.load(file_path, allow_pickle=True).item()
+            # Get image patches and normalize
+            x = torch.from_numpy((output['img'].astype(np.float32) - 127.5) / 127.5)
+            x = x.permute(2,0,1).float().to(device)
+            #print("xshape", x.shape)
+            #X= X + (x,)
+            X.append(x)
 
-def SetupAll():
+            # Get homography and normalize
+            y = torch.from_numpy(output['homography'].astype(np.float32) / 32.0)
+            y = y.float().to(device)
+
+            # Y = Y + (y,)
+            Y.append(y)
+
+            i = i + 1
+        self.len  = i
+        self.X_data = X
+        self.Y_data = Y
+
+    def __len__(self):
+        """Return total number of samples"""
+        #return len(self.X_data)
+        return self.len
+
+    def __getitem__(self, index):
+        """Get a single data pair"""
+        x = self.X_data[index]
+        print("xshape2", x.shape)
+        y = self.Y_data[index]
+        if self.transform:
+            x = self.transform(x)
+
+        return x, y
+
+def GenerateBatch(TestSet,  MiniBatchSize, istest = False):
     """
-    Outputs:
+    Inputs:
+    BasePath - Path to COCO folder without "/" at the end
+    DirNamesTrain - Variable with Subfolder paths to train files
+    NOTE that Train can be replaced by Val/Test for generating batch corresponding to validation (held-out testing in this case)/testing
+    TrainCoordinates - Coordinatess corresponding to Train
+    NOTE that TrainCoordinates can be replaced by Val/TestCoordinatess for generating batch corresponding to validation (held-out testing in this case)/testing
     ImageSize - Size of the Image
-    """
-    # Image Input Shape
-    ImageSize = [32, 32, 3]
-
-    return ImageSize
-
-
-def StandardizeInputs(Img):
-    ##########################################################################
-    # Add any standardization or cropping/resizing if used in Training here!
-    ##########################################################################
-    return Img
-
-
-def ReadImages(Img):
-    """
+    MiniBatchSize is the size of the MiniBatch
     Outputs:
-    I1Combined - I1 image after any standardization and/or cropping/resizing to ImageSize
-    I1 - Original I1 image for visualization purposes only
+    I1Batch - Batch of images
+    CoordinatesBatch - Batch of coordinates
     """
-    I1 = Img
+    I1Batch = []
+    CoordinatesBatch = []
 
-    if I1 is None:
-        # OpenCV returns empty list if image is not read!
-        print("ERROR: Image I1 cannot be read")
-        sys.exit()
+    ImageNum = 0
+    while ImageNum < MiniBatchSize:
+        # Generate random image
+        RandIdx = random.randint(0, len(TestSet) - 1)
 
-    I1S = StandardizeInputs(np.float32(I1))
-
-    I1Combined = np.expand_dims(I1S, axis=0)
-
-    return I1Combined, I1
+        #RandImageName = BasePath + os.sep + DirNamesTrain[RandIdx] + ".jpg"
 
 
-def TestOperation(ImageSize, ModelPath, TestSet, LabelsPathPred):
+        ##########################################################
+        # Add any standardization or data augmentation here!
+        ##########################################################
+        # I1 = np.float32(cv2.imread(RandImageName))
+        # Coordinates = TrainCoordinates[RandIdx]
+        I1 , Coordinates = TestSet[RandIdx]
+        print("shapeI1", I1.shape)
+        # Append All Images and Mask
+        I1Batch.append(I1)
+        CoordinatesBatch.append(Coordinates)
+        ImageNum += 1
+
+    return torch.stack(I1Batch).to(device), torch.stack(CoordinatesBatch).to(device)
+
+
+
+
+def TestOperation(NumEpochs,
+        MiniBatchSize,
+        DivTest,
+        LogsPath,
+        ModelType, TestSet, ModelPath):
     """
     Inputs:
     ImageSize is the size of the image
@@ -89,7 +156,8 @@ def TestOperation(ImageSize, ModelPath, TestSet, LabelsPathPred):
     Predictions written to /content/data/TxtFiles/PredOut.txt
     """
     # Predict output with forward pass, MiniBatchSize for Test is 1
-    model = CIFAR10Model(InputSize=3 * 32 * 32, OutputSize=10)
+    model = HomographyNet(InputSize=2 * 128 * 128, OutputSize=8).to(device)
+    print("Model Device:", next(model.parameters()).device)
 
     CheckPoint = torch.load(ModelPath)
     model.load_state_dict(CheckPoint["model_state_dict"])
@@ -97,69 +165,70 @@ def TestOperation(ImageSize, ModelPath, TestSet, LabelsPathPred):
         "Number of parameters in this model are %d " % len(model.state_dict().items())
     )
 
-    OutSaveT = open(LabelsPathPred, "w")
+    model.eval()
+    StartEpoch = 0
+    # NumEpochs = 50
+    # MiniBatchSize = 64
+    # DivTest = 1
+    epoch_losses_test = []
+    epoch_epe_test = []
+    forward_pass_times = []
+    NumTestSamples = len(TestSet)
+    Testing_Start = tic()
+    all_Test_Prediction = []
+    all_Test_Label = []
+    model.eval()
+    with torch.no_grad():
+        for Epochs in tqdm(range(NumEpochs)):
+            NumIterationsPerEpoch = int(NumTestSamples / MiniBatchSize / DivTest)
+            test_loss = 0.0
+            total_epe_test = 0.0
 
-    for count in tqdm(range(len(TestSet))):
-        Img, Label = TestSet[count]
-        Img, ImgOrg = ReadImages(Img)
-        PredT = torch.argmax(model(Img)).item()
+            for PerEpochCounter in tqdm(range(NumIterationsPerEpoch)):
+                # Generate and process batch
+                I1Batch, CoordinatesBatch = GenerateBatch(TestSet, MiniBatchSize)
+                start_time = time.time()
+                PredicatedCoordinatesBatch = model(I1Batch)
+                forward_time = time.time() - start_time
+                forward_pass_times.append(forward_time)
+                print("PredicatedCoordinatesBatch: ", PredicatedCoordinatesBatch)
 
-        OutSaveT.write(str(PredT) + "\n")
-    OutSaveT.close()
+                # EPE Calculation
+                pred_denorm = PredicatedCoordinatesBatch * 32.0
+                gt_denorm = CoordinatesBatch * 32.0
+                epe_test = EPE(pred_denorm, gt_denorm)
+                total_epe_test += epe_test.item()
 
+                # Forward pass
+                result = model.validation_step((I1Batch, CoordinatesBatch))
+                test_loss += result["loss"].item()
 
-def Accuracy(Pred, GT):
-    """
-    Inputs:
-    Pred are the predicted labels
-    GT are the ground truth labels
-    Outputs:
-    Accuracy in percentage
-    """
-    return np.sum(np.array(Pred) == np.array(GT)) * 100.0 / len(Pred)
+            # Calculate average loss for the epoch
+            avg_loss = test_loss / NumIterationsPerEpoch
+            avg_epe_test = total_epe_test / NumIterationsPerEpoch
+            epoch_epe_test.append(avg_epe_test)
+            avg_forward_time = np.mean(forward_pass_times) * 1000
+            epoch_losses_test.append(avg_loss)
+            print(f"Epoch {Epochs + 1}, Average TestLoss: {avg_loss:.4f}")
+            print(f"Average TESTING EPE: {avg_epe_test:.4f} pixels")
+            print(f"Average Forward Pass Time: {avg_forward_time:.2f} ms")
+    # Plot the loss over epochs after training
+    plt.plot(range(NumEpochs), epoch_losses_test, label='Testloss')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.title('Loss Over Epochs')
+    plt.legend()
+    plt.show()
 
-
-def ReadLabels(LabelsPathTest, LabelsPathPred):
-    if not (os.path.isfile(LabelsPathTest)):
-        print("ERROR: Test Labels do not exist in " + LabelsPathTest)
-        sys.exit()
-    else:
-        LabelTest = open(LabelsPathTest, "r")
-        LabelTest = LabelTest.read()
-        LabelTest = map(float, LabelTest.split())
-
-    if not (os.path.isfile(LabelsPathPred)):
-        print("ERROR: Pred Labels do not exist in " + LabelsPathPred)
-        sys.exit()
-    else:
-        LabelPred = open(LabelsPathPred, "r")
-        LabelPred = LabelPred.read()
-        LabelPred = map(float, LabelPred.split())
-
-    return LabelTest, LabelPred
-
-
-def ConfusionMatrix(LabelsTrue, LabelsPred):
-    """
-    LabelsTrue - True labels
-    LabelsPred - Predicted labels
-    """
-
-    # Get the confusion matrix using sklearn.
-    LabelsTrue, LabelsPred = list(LabelsTrue), list(LabelsPred)
-    cm = confusion_matrix(
-        y_true=LabelsTrue, y_pred=LabelsPred  # True class for test-set.
-    )  # Predicted class.
-
-    # Print the confusion matrix as text.
-    for i in range(10):
-        print(str(cm[i, :]) + " ({0})".format(i))
-
-    # Print the class-numbers for easy reference.
-    class_numbers = [" ({0})".format(i) for i in range(10)]
-    print("".join(class_numbers))
-
-    print("Accuracy: " + str(Accuracy(LabelsPred, LabelsTrue)), "%")
+    # Plot EPE curves
+    plt.plot(range(len(epoch_epe_test)), epoch_epe_test, label='Test EPE')
+    plt.xlabel('Epochs')
+    plt.ylabel('EPE (pixels)')
+    plt.title('EPE Over Testing Epochs')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(os.path.join(LogsPath, 'epe_curves_test.png'))
+    plt.close()
 
 
 def main():
@@ -175,7 +244,7 @@ def main():
     Parser.add_argument(
         "--ModelPath",
         dest="ModelPath",
-        default="/home/chahatdeep/Downloads/Checkpoints/144model.ckpt",
+        default="D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Code/TxtFiles/CheckpointsTRANS/99model.ckpt",
         help="Path to load latest model from, Default:ModelPath",
     )
     Parser.add_argument(
@@ -184,30 +253,57 @@ def main():
         default="/home/chahatdeep/Downloads/aa/CMSC733HW0/CIFAR10/Test/",
         help="Path to load images from, Default:BasePath",
     )
+
     Parser.add_argument(
-        "--LabelsPath",
-        dest="LabelsPath",
-        default="./TxtFiles/LabelsTest.txt",
-        help="Path of labels file, Default:./TxtFiles/LabelsTest.txt",
+        "--NumEpochs",
+        type=int,
+        default=100,
+        help="Number of Epochs to Train for, Default:50",
     )
+
+    Parser.add_argument(
+        "--MiniBatchSize",
+        type=int,
+        default=64,
+        help="Size of the MiniBatch to use, Default:1",)
+
+    Parser.add_argument(
+        "--DivTest",
+        type=int,
+        default=1,
+        help="Factor to reduce Test data by per epoch, Default:1",
+    )
+
+    Parser.add_argument(
+        "--ModelType",
+        default="Unsup",
+        help="Model type, Supervised or Unsupervised? Choose from Sup and Unsup, Default:Unsup",
+    )
+
+    Parser.add_argument(
+        "--LogsPath",
+        default="D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Code/TxtFiles/Logs/",
+        help="Path to save Logs for Tensorboard, Default=Logs/",
+    )
+
     Args = Parser.parse_args()
     ModelPath = Args.ModelPath
     BasePath = Args.BasePath
-    LabelsPath = Args.LabelsPath
+    MiniBatchSize = Args.MiniBatchSize
+    NumEpochs = Args.NumEpochs
+    DivTest = Args.DivTest
+    ModelType = Args.ModelType
+    LogsPath = Args.LogsPath
 
-    # Setup all needed parameters including file reading
-    ImageSize, DataPath = SetupAll(BasePath)
 
-    # Define PlaceHolder variables for Input and Predicted output
-    ImgPH = tf.placeholder("float", shape=(1, ImageSize[0], ImageSize[1], 3))
-    LabelsPathPred = "./TxtFiles/PredOut.txt"  # Path to save predicted labels
-
-    TestOperation(ImgPH, ImageSize, ModelPath, DataPath, LabelsPathPred)
-
-    # Plot Confusion Matrix
-    LabelsTrue, LabelsPred = ReadLabels(LabelsPath, LabelsPathPred)
-    ConfusionMatrix(LabelsTrue, LabelsPred)
-
+    TestSet = COCOCustom(root_dir="D:/Computer vision/Homeworks/PH1_phase2/YourDirectoryID_p1/Phase2/Data/Val/TESTTRANS")
+    TestOperation(
+        NumEpochs,
+        MiniBatchSize,
+        DivTest,
+        LogsPath,
+        ModelType, TestSet, ModelPath
+    )
 
 if __name__ == "__main__":
     main()
